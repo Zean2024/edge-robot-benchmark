@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
+from rclpy.qos import (
+    QoSProfile,
+    HistoryPolicy,
+    ReliabilityPolicy,
+    DurabilityPolicy,
+)
+from geometry_msgs.msg import TransformStamped
+from tf2_msgs.msg import TFMessage
+from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
+
+
+class TfFilter(Node):
+    def __init__(self):
+        super().__init__('tf_filter')
+
+        qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=100,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+
+        self.sub = self.create_subscription(
+            TFMessage, '/tf_bag', self.callback, qos
+        )
+        self.pub = self.create_publisher(TFMessage, '/tf', qos)
+
+        # This sensor extrinsic was verified constant across all 463
+        # occurrences in the current bag.
+        self.static_broadcaster = StaticTransformBroadcaster(self)
+        self.publish_static_laser_transform()
+
+        self.input_messages = 0
+        self.input_transforms = 0
+        self.dropped_odom_base = 0
+        self.dropped_dynamic_laser = 0
+        self.forwarded_transforms = 0
+        self.output_messages = 0
+
+        self.get_logger().info(
+            'TF Filter active: filtering bag odometry TF and converting '
+            'the fixed base_footprint -> laser transform to /tf_static.'
+        )
+
+        self.stats_timer = self.create_timer(5.0, self.report_stats)
+
+    def publish_static_laser_transform(self):
+        transform = TransformStamped()
+        transform.header.stamp = self.get_clock().now().to_msg()
+        transform.header.frame_id = 'base_footprint'
+        transform.child_frame_id = 'laser'
+
+        transform.transform.translation.x = 0.180
+        transform.transform.translation.y = 0.000
+        transform.transform.translation.z = 0.320
+
+        transform.transform.rotation.x = 0.000000000
+        transform.transform.rotation.y = 0.000000000
+        transform.transform.rotation.z = 0.999999683
+        transform.transform.rotation.w = 0.000796327
+
+        self.static_broadcaster.sendTransform(transform)
+        self.get_logger().info(
+            'Published static transform base_footprint -> laser.'
+        )
+
+    def callback(self, msg):
+        self.input_messages += 1
+        self.input_transforms += len(msg.transforms)
+
+        filtered = []
+
+        for transform in msg.transforms:
+            parent = transform.header.frame_id.lstrip('/')
+            child = transform.child_frame_id.lstrip('/')
+
+            # EKF is the sole authority for this odometry transform.
+            if parent == 'odom_combined' and child == 'base_footprint':
+                self.dropped_odom_base += 1
+                continue
+
+            # The fixed laser mounting transform is now supplied by
+            # /tf_static, so do not republish its dynamic bag duplicate.
+            if parent == 'base_footprint' and child == 'laser':
+                self.dropped_dynamic_laser += 1
+                continue
+
+            filtered.append(transform)
+
+        if filtered:
+            output = TFMessage()
+            output.transforms = filtered
+            self.pub.publish(output)
+            self.output_messages += 1
+            self.forwarded_transforms += len(filtered)
+
+    def report_stats(self):
+        self.get_logger().info(
+            'TF filter stats: '
+            f'input_messages={self.input_messages}, '
+            f'input_transforms={self.input_transforms}, '
+            f'dropped_odom_base={self.dropped_odom_base}, '
+            f'dropped_dynamic_laser={self.dropped_dynamic_laser}, '
+            f'forwarded_transforms={self.forwarded_transforms}, '
+            f'output_messages={self.output_messages}'
+        )
+
+
+def main():
+    rclpy.init()
+    node = None
+
+    try:
+        node = TfFilter()
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    finally:
+        if node is not None:
+            node.report_stats()
+            node.destroy_node()
+
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
