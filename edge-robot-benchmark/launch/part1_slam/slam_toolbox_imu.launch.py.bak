@@ -1,0 +1,45 @@
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+import os
+
+def generate_launch_description():
+    use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+    slam_params = os.path.join(
+        os.path.expanduser('~'), 'edge-robot-benchmark',
+        'configs', 'part1_slam', 'slam_toolbox_imu.yaml')
+    ekf_params = os.path.join(
+        os.path.expanduser('~'), 'edge-robot-benchmark',
+        'configs', 'part1_slam', 'ekf_slam_toolbox_imu.yaml')
+    tf_filter_script = os.path.join(
+        os.path.expanduser('~'), 'edge-robot-benchmark',
+        'src', 'part1_slam', 'scripts', 'tf_filter.py')
+
+    return LaunchDescription([
+        DeclareLaunchArgument('use_sim_time', default_value='true'),
+
+        # TF filter: drops bag odom TF, keeps static TFs
+        ExecuteProcess(
+            cmd=['python3', tf_filter_script],
+            output='screen'
+        ),
+
+        # EKF: fuses /odom and /imu, publishes odom_combined -> base_footprint
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_filter_node',
+            output='screen',
+            parameters=[ekf_params, {'use_sim_time': use_sim_time}],
+        ),
+
+        # SLAM Toolbox
+        Node(
+            package='slam_toolbox',
+            executable='async_slam_toolbox_node',
+            name='slam_toolbox',
+            output='screen',
+            parameters=[slam_params, {'use_sim_time': use_sim_time}],
+        ),
+    ])

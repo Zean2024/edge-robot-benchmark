@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+set -u
+
+cd "$HOME/edge-robot-benchmark" || exit 1
+
+RUN_DIR="results/part1_slam/tf_validation/run_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$RUN_DIR"
+RUN_DIR="$(realpath "$RUN_DIR")"
+
+LAUNCH_PID=""
+BAG_PID=""
+MONITORS=()
+
+cleanup() {
+    echo
+    echo "Stopping diagnostic processes..."
+
+    for p in "${MONITORS[@]}"; do
+        kill -INT "$p" 2>/dev/null || true
+    done
+
+    if [[ -n "$BAG_PID" ]] && kill -0 "$BAG_PID" 2>/dev/null; then
+        kill -INT "$BAG_PID" 2>/dev/null || true
+    fi
+
+    if [[ -n "$LAUNCH_PID" ]] && kill -0 "$LAUNCH_PID" 2>/dev/null; then
+        kill -INT "$LAUNCH_PID" 2>/dev/null || true
+    fi
+
+    for p in "${MONITORS[@]}"; do
+        wait "$p" 2>/dev/null || true
+    done
+
+    [[ -n "$BAG_PID" ]] && wait "$BAG_PID" 2>/dev/null || true
+    [[ -n "$LAUNCH_PID" ]] && wait "$LAUNCH_PID" 2>/dev/null || true
+}
+
+trap cleanup EXIT INT TERM
+
+echo "Results will be saved to: $RUN_DIR"
+
+echo "Starting SLAM launch..."
+ros2 launch launch/part1_slam/slam_toolbox_no_imu.launch.py \
+    > "$RUN_DIR/launch.log" 2>&1 &
+LAUNCH_PID=$!
+
+echo "Waiting for SLAM nodes..."
+READY=0
+for i in $(seq 1 45); do
+    if ros2 node list 2>/dev/null | grep -qx '/slam_toolbox'; then
+        READY=1
+        break
+    fi
+    sleep 1
+done
+
+if [[ "$READY" -ne 1 ]]; then
+    echo "ERROR: SLAM did not become ready."
+    tail -n 60 "$RUN_DIR/launch.log"
+    exit 1
+fi
+
+echo "Starting rosbag playback..."
+ros2 bag play datasets/processed/M2DGR-plus/anomaly_ros2 \
+    --clock --rate 0.5 --remap /tf:=/tf_bag \
+    > "$RUN_DIR/bag.log" 2>&1 &
+BAG_PID=$!
+
+# Start all measurements immediately, while the bag is playing.
+timeout 900 ros2 topic hz --window 10 /scan \
+    > "$RUN_DIR/scan_hz.log" 2>&1 &
+MONITORS+=("$!")
+
+timeout 900 ros2 topic hz --window 10 /odometry/filtered \
+    > "$RUN_DIR/odom_hz.log" 2>&1 &
+MONITORS+=("$!")
+
+timeout 900 ros2 topic hz --window 10 --qos-reliability best_effort /clock \
+    > "$RUN_DIR/clock_hz.log" 2>&1 &
+MONITORS+=("$!")
+
+timeout 900 ros2 topic hz --window 5 /map \
+    > "$RUN_DIR/map_hz.log" 2>&1 &
+MONITORS+=("$!")
+
+timeout 900 ros2 run tf2_ros tf2_echo \
+    odom_combined base_footprint --ros-args -p use_sim_time:=true \
+    > "$RUN_DIR/tf_odom_base.log" 2>&1 &
+MONITORS+=("$!")
+
+timeout 900 ros2 run tf2_ros tf2_echo \
+    map base_footprint --ros-args -p use_sim_time:=true \
+    > "$RUN_DIR/tf_map_base.log" 2>&1 &
+MONITORS+=("$!")
+
+timeout 60 ros2 topic echo /map --once --field header \
+    > "$RUN_DIR/map_header.log" 2>&1 &
+MONITORS+=("$!")
+
+{
+    echo "time,pid,cpu_percent,memory_percent,elapsed,command"
+} > "$RUN_DIR/resources.csv"
+
+echo "Monitoring playback, topics, TF and resource use..."
+
+SECONDS=0
+while kill -0 "$BAG_PID" 2>/dev/null; do
+    STATE="$(ps -o stat= -p "$BAG_PID" 2>/dev/null | tr -d ' ')"
+    [[ "$STATE" == Z* ]] && break
+
+    NOW="$(date --iso-8601=seconds)"
+    ps -eo pid=,pcpu=,pmem=,etime=,args= |
+        awk '
+          /async_slam_toolbox_node|robot_localization\/ekf_node|scripts\/tf_filter.py|ros2 bag play/ &&
+          !/awk/ {print}
+        ' | while read -r pid cpu mem elapsed command; do
+            printf '"%s",%s,%s,%s,"%s","%s"\n' \
+                "$NOW" "$pid" "$cpu" "$mem" "$elapsed" \
+                "${command//\"/}" >> "$RUN_DIR/resources.csv"
+        done
+
+    sleep 2
+    if (( SECONDS > 900 )); then
+        echo "Reached monitoring time limit." > "$RUN_DIR/time_limit.txt"
+        break
+    fi
+done
+
+echo "Playback ended; stopping measurements..."
+exit 0

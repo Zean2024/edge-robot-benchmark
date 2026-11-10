@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+
+import rclpy
+from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
+from rclpy.qos import (
+    QoSProfile,
+    HistoryPolicy,
+    ReliabilityPolicy,
+    DurabilityPolicy,
+)
+from tf2_msgs.msg import TFMessage
+
+
+class TfFilter(Node):
+    def __init__(self):
+        super().__init__('tf_filter')
+
+        # Keep enough TF messages buffered while preserving reliable delivery.
+        tf_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=100,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+
+        self.sub = self.create_subscription(
+            TFMessage, '/tf_bag', self.callback, tf_qos
+        )
+        self.pub = self.create_publisher(TFMessage, '/tf', tf_qos)
+
+        self.input_messages = 0
+        self.input_transforms = 0
+        self.dropped_conflicts = 0
+        self.forwarded_transforms = 0
+        self.output_messages = 0
+
+        self.get_logger().info(
+            'TF Filter active: /tf_bag -> /tf; '
+            'filtering odom_combined -> base_footprint'
+        )
+
+        # Wall-clock timer: report progress even when simulated time pauses.
+        self.stats_timer = self.create_timer(5.0, self.report_stats)
+
+    def callback(self, msg):
+        self.input_messages += 1
+        self.input_transforms += len(msg.transforms)
+
+        filtered = []
+
+        for transform in msg.transforms:
+            if (
+                transform.header.frame_id.lstrip('/') == 'odom_combined'
+                and transform.child_frame_id.lstrip('/') == 'base_footprint'
+            ):
+                self.dropped_conflicts += 1
+                continue
+
+            filtered.append(transform)
+
+        if filtered:
+            output = TFMessage()
+            output.transforms = filtered
+            self.pub.publish(output)
+
+            self.output_messages += 1
+            self.forwarded_transforms += len(filtered)
+
+    def report_stats(self):
+        self.get_logger().info(
+            'TF filter stats: '
+            f'input_messages={self.input_messages}, '
+            f'input_transforms={self.input_transforms}, '
+            f'dropped_conflicts={self.dropped_conflicts}, '
+            f'forwarded_transforms={self.forwarded_transforms}, '
+            f'output_messages={self.output_messages}'
+        )
+
+
+def main():
+    rclpy.init()
+    node = None
+
+    try:
+        node = TfFilter()
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # Normal shutdown must not be reported as a runtime failure.
+        pass
+    finally:
+        if node is not None:
+            node.report_stats()
+            node.destroy_node()
+
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
