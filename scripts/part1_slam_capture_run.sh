@@ -3,7 +3,34 @@ set -uo pipefail
 
 cd "$HOME/edge-robot-benchmark" || exit 1
 
-RUN_DIR="results/part1_slam/tf_validation/run_$(date +%Y%m%d_%H%M%S)"
+# ------------------------------------------------------------------------------
+# 1. Parameter Parsing & Validation
+# ------------------------------------------------------------------------------
+EXPERIMENT="${1:-slam_toolbox_no_imu}"
+DATASET="${2:-anomaly_ros2}"
+
+LAUNCH_FILE="launch/part1_slam/${EXPERIMENT}.launch.py"
+BAG_PATH="datasets/processed/M2DGR-plus/${DATASET}"
+
+usage() {
+    echo "Usage: $0 [EXPERIMENT] [DATASET]"
+    echo "  EXPERIMENT: slam_toolbox_no_imu | slam_toolbox_imu | cartographer_no_imu | cartographer_imu (default: slam_toolbox_no_imu)"
+    echo "  DATASET:    anomaly_ros2 | Parking_02_ros2 | ... (default: anomaly_ros2)"
+}
+
+if [[ ! -f "$LAUNCH_FILE" ]]; then
+    echo "ERROR: Launch file not found: $LAUNCH_FILE"
+    usage
+    exit 1
+fi
+
+if [[ ! -d "$BAG_PATH" && ! -f "$BAG_PATH/metadata.yaml" ]]; then
+    echo "ERROR: ROS bag dataset not found: $BAG_PATH"
+    usage
+    exit 1
+fi
+
+RUN_DIR="results/part1_slam/${EXPERIMENT}/${DATASET}_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RUN_DIR"
 RUN_DIR="$(realpath "$RUN_DIR")"
 
@@ -13,7 +40,9 @@ STARTED_PID=""
 MONITORS=()
 CLEANING=0
 
-# Remove leftovers from the previous diagnostic run only.
+# ------------------------------------------------------------------------------
+# 2. Cleanup Stale Project Processes
+# ------------------------------------------------------------------------------
 clean_stale_project_processes() {
 python3 - <<'PY'
 import os
@@ -21,19 +50,16 @@ import signal
 import time
 
 patterns = [
-    "ros2 launch launch/part1_slam/slam_toolbox_no_imu.launch.py",
-    "ros2 bag play datasets/processed/M2DGR-plus/anomaly_ros2",
+    "ros2 launch launch/part1_slam/",
+    "ros2 bag play datasets/processed/",
     "src/part1_slam/scripts/tf_filter.py",
+    "src/part1_slam/scripts/imu_covariance_filter.py",
     "/opt/ros/jazzy/lib/robot_localization/ekf_node",
     "/opt/ros/jazzy/lib/slam_toolbox/async_slam_toolbox_node",
-    "ros2 topic hz --window 10 /scan",
-    "ros2 topic hz --window 10 /scan_for_slam",
-    "ros2 topic hz --window 10 /odometry/filtered",
-    "ros2 topic hz --window 5 /map",
-    "ros2 topic hz --window 10 --qos-reliability",
-    "tf2_echo odom_combined base_footprint",
-    "tf2_echo map base_footprint",
-    "ros2 topic echo /map --once --field header",
+    "/opt/ros/jazzy/lib/cartographer_ros/cartographer_node",
+    "ros2 topic hz",
+    "tf2_echo",
+    "ros2 topic echo /map",
     "scripts/part1_slam/clock_rate_monitor.py",
 ]
 
@@ -111,8 +137,6 @@ start_group() {
     local logfile="$1"
     shift
 
-    # Reset inherited ignored signals before exec. Every task gets its
-    # own session/process group, so cleanup can target the entire group.
     setsid bash -c 'trap - INT TERM; exec "$@"' _ "$@" \
         >"$logfile" 2>&1 &
     STARTED_PID=$!
@@ -126,7 +150,6 @@ cleanup() {
     fi
     CLEANING=1
 
-    # Prevent repeated cleanup and preserve the original exit status.
     trap - EXIT INT TERM
     trap '' INT TERM
 
@@ -140,14 +163,12 @@ cleanup() {
     )
     local p alive i
 
-    # Stop monitors first; gracefully stop the bag and launch.
     for p in "${MONITORS[@]}"; do
         [[ -n "$p" ]] && signal_group TERM "$p" || true
     done
     signal_group INT "${BAG_PID:-}"
     signal_group INT "${LAUNCH_PID:-}"
 
-    # Wait for a maximum of five seconds.
     for i in $(seq 1 20); do
         alive=0
         for p in "${all_pids[@]}"; do
@@ -160,7 +181,6 @@ cleanup() {
         sleep 0.25
     done
 
-    # Escalate to TERM, then KILL, if needed.
     for p in "${all_pids[@]}"; do
         [[ -n "$p" ]] && signal_group TERM "$p" || true
     done
@@ -171,7 +191,6 @@ cleanup() {
     done
     sleep 0.3
 
-    # Never wait indefinitely for a process group that remains alive.
     for p in "${all_pids[@]}"; do
         [[ -n "$p" ]] || continue
         if ! process_group_alive "$p"; then
@@ -188,29 +207,50 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "Results will be saved to: $RUN_DIR"
+echo "=========================================================="
+echo " Starting Benchmarking Run"
+echo " Experiment: $EXPERIMENT"
+echo " Dataset:    $DATASET"
+echo " Launch:     $LAUNCH_FILE"
+echo " Bag:        $BAG_PATH"
+echo " Results:    $RUN_DIR"
+echo "=========================================================="
 echo "Checking for leftover processes from an earlier run..."
 clean_stale_project_processes
 
-start_group "$RUN_DIR/launch.log" \
-    ros2 launch launch/part1_slam/slam_toolbox_no_imu.launch.py
+start_group "$RUN_DIR/launch.log" ros2 launch "$LAUNCH_FILE"
 LAUNCH_PID="$STARTED_PID"
 
-echo "Waiting for SLAM lifecycle and subscriptions..."
+echo "Waiting for SLAM node lifecycle and subscriptions..."
 READY=0
+IS_SLAM_TOOLBOX=0
+if [[ "$EXPERIMENT" == slam_toolbox* ]]; then
+    IS_SLAM_TOOLBOX=1
+fi
 
 for i in $(seq 1 60); do
     NODES="$(timeout 3s ros2 node list 2>/dev/null || true)"
-    SLAM_STATE="$(timeout 3s ros2 lifecycle get /slam_toolbox 2>/dev/null || true)"
     SCAN_INFO="$(timeout 3s ros2 topic info /scan --verbose 2>/dev/null || true)"
     FILTERED_SCAN_INFO="$(timeout 3s ros2 topic info /scan_for_slam --verbose 2>/dev/null || true)"
     TF_INFO="$(timeout 3s ros2 topic info /tf_bag --verbose 2>/dev/null || true)"
 
-    if printf '%s\n' "$SLAM_STATE" | grep -Eqi 'active' &&
+    NODE_READY=0
+    if [[ "$IS_SLAM_TOOLBOX" -eq 1 ]]; then
+        SLAM_STATE="$(timeout 3s ros2 lifecycle get /slam_toolbox 2>/dev/null || true)"
+        if printf '%s\n' "$SLAM_STATE" | grep -Eqi 'active' && printf '%s\n' "$NODES" | grep -qx '/slam_toolbox'; then
+            NODE_READY=1
+        fi
+    else
+        if printf '%s\n' "$NODES" | grep -qx '/cartographer_node'; then
+            NODE_READY=1
+        fi
+    fi
+
+    if [[ "$NODE_READY" -eq 1 ]] &&
        printf '%s\n' "$NODES" | grep -qx '/ekf_filter_node' &&
        printf '%s\n' "$NODES" | grep -qx '/tf_filter' &&
        printf '%s\n' "$SCAN_INFO" | grep -q 'Node name: tf_filter' &&
-       printf '%s\n' "$FILTERED_SCAN_INFO" | grep -q 'Node name: slam_toolbox' &&
+       printf '%s\n' "$FILTERED_SCAN_INFO" | grep -q 'Node name: ' &&
        printf '%s\n' "$TF_INFO" | grep -q 'Node name: tf_filter'; then
         READY=1
         break
@@ -221,16 +261,18 @@ done
 if [[ "$READY" -ne 1 ]]; then
     echo "ERROR: required nodes/subscriptions did not become ready."
     ros2 node list 2>&1 || true
-    ros2 lifecycle get /slam_toolbox 2>&1 || true
+    if [[ "$IS_SLAM_TOOLBOX" -eq 1 ]]; then
+        ros2 lifecycle get /slam_toolbox 2>&1 || true
+    fi
     tail -n 80 "$RUN_DIR/launch.log"
     exit 1
 fi
 
-echo "SLAM is active; starting one rosbag player."
+echo "SLAM node is active; starting rosbag player..."
 sleep 2
 
 start_group "$RUN_DIR/bag.log" \
-    ros2 bag play datasets/processed/M2DGR-plus/anomaly_ros2 \
+    ros2 bag play "$BAG_PATH" \
     --clock --rate 0.5 --remap /tf:=/tf_bag
 BAG_PID="$STARTED_PID"
 
@@ -290,7 +332,7 @@ while kill -0 "$BAG_PID" 2>/dev/null; do
     now="$(date --iso-8601=seconds)"
     ps -eo pid=,pcpu=,pmem=,etime=,args= |
         grep -E \
-        'async_slam_toolbox_node|robot_localization/ekf_node|src/part1_slam/scripts/tf_filter.py|ros2 bag play' |
+        'async_slam_toolbox_node|cartographer_node|robot_localization/ekf_node|src/part1_slam/scripts/tf_filter.py|ros2 bag play' |
         grep -v grep |
         while read -r pid cpu mem elapsed command; do
             printf '"%s",%s,%s,%s,"%s","%s"\n' \

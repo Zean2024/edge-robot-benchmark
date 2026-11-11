@@ -1,0 +1,29 @@
+# 1. Ignore large datasets but keep directory structure
+datasets/raw/*
+datasets/processed/*
+!datasets/raw/.gitkeep
+!datasets/processed/.gitkeep
+
+# 2. Ignore Python compilation cache
+__pycache__/
+*.pyc
+
+# 3. Ignore backup and temporary files from editing
+*.bak
+*.backup
+*odom_only_backup
+*scan_topic_*
+*scan_gate_*
+*scan_routing_*
+*safe_shutdown_*
+
+# 4. Ignore massive logs and validation results from runs (keep structure & scripts)
+results/part1_slam/tf_validation/*/
+!results/part1_slam/tf_validation/*.py
+!results/part1_slam/tf_validation/*.md
+*.log
+*.csv
+
+# 5. Ignore ROS 2 bag files or database files accidentally generated
+*.db3
+*.mcap
