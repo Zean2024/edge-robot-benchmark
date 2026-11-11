@@ -50,7 +50,7 @@ def generate_launch_description():
 
     # Relay bag TF while dropping the conflicting odometry transform.
     tf_filter = ExecuteProcess(
-        cmd=['python3', tf_filter_script],
+        cmd=['python3', tf_filter_script, '--ros-args', '-p', 'use_sim_time:=true'],
         output='screen',
         name='tf_filter_process',
     )

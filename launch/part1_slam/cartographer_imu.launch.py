@@ -45,14 +45,14 @@ def generate_launch_description():
 
     # Filter conflicting transforms and gate incoming laser scans.
     tf_filter = ExecuteProcess(
-        cmd=['python3', tf_filter_script],
+        cmd=['python3', tf_filter_script, '--ros-args', '-p', 'use_sim_time:=true'],
         output='screen',
         name='tf_filter_process',
     )
 
     # Publish /imu_ekf for the IMU-enabled EKF.
     imu_filter = ExecuteProcess(
-        cmd=['python3', imu_filter_script],
+        cmd=['python3', imu_filter_script, '--ros-args', '-p', 'use_sim_time:=true'],
         output='screen',
         name='imu_covariance_filter_process',
     )

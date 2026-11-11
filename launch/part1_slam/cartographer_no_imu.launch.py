@@ -30,7 +30,7 @@ def generate_launch_description():
     # Filter conflicting bag TF and publish scans only when the
     # required odom_combined -> laser transform is available.
     tf_filter = ExecuteProcess(
-        cmd=['python3', tf_filter_script],
+        cmd=['python3', tf_filter_script, '--ros-args', '-p', 'use_sim_time:=true'],
         output='screen',
         name='tf_filter_process',
     )
