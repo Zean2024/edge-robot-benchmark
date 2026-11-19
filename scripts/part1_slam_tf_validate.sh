@@ -10,32 +10,47 @@ if [[ -f "$ROOT/install/setup.bash" ]]; then
 fi
 
 usage() {
-    echo "Usage: $0 {slam_toolbox_no_imu|slam_toolbox_imu|cartographer_no_imu|cartographer_imu}"
+    echo "Usage: $0 <EXPERIMENT> [DATASET]"
+    echo "  EXPERIMENT: slam_toolbox_no_imu | slam_toolbox_imu | cartographer_no_imu | cartographer_imu"
+    echo "  DATASET:    anomaly_ros2 | Parking_02_ros2 (default: anomaly_ros2)"
 }
 
-if [[ $# -ne 1 ]]; then
+if [[ $# -lt 1 || $# -gt 2 ]]; then
     usage
     exit 2
 fi
 
 EXPERIMENT="$1"
+DATASET="${2:-anomaly_ros2}"
+
+# Experiment-specific expectations.
+IS_CARTOGRAPHER=0
+IS_SLAM_TOOLBOX=0
+EXPECTS_IMU_FILTER=0
+EXPECTS_GYRO_TF=0
 
 case "$EXPERIMENT" in
     slam_toolbox_no_imu)
         LAUNCH_FILE="launch/part1_slam/slam_toolbox_no_imu.launch.py"
         EXPECTED_NODE="/slam_toolbox"
+        IS_SLAM_TOOLBOX=1
         ;;
     slam_toolbox_imu)
         LAUNCH_FILE="launch/part1_slam/slam_toolbox_imu.launch.py"
         EXPECTED_NODE="/slam_toolbox"
+        IS_SLAM_TOOLBOX=1
+        EXPECTS_IMU_FILTER=1
         ;;
     cartographer_no_imu)
         LAUNCH_FILE="launch/part1_slam/cartographer_no_imu.launch.py"
         EXPECTED_NODE="/cartographer_node"
+        IS_CARTOGRAPHER=1
         ;;
     cartographer_imu)
         LAUNCH_FILE="launch/part1_slam/cartographer_imu.launch.py"
         EXPECTED_NODE="/cartographer_node"
+        IS_CARTOGRAPHER=1
+        EXPECTS_GYRO_TF=1
         ;;
     *)
         usage
@@ -43,9 +58,9 @@ case "$EXPERIMENT" in
         ;;
 esac
 
-BAG="$ROOT/datasets/processed/M2DGR-plus/anomaly_ros2"
+BAG="$ROOT/datasets/processed/M2DGR-plus/$DATASET"
 STAMP="$(date +%Y%m%d_%H%M%S)"
-OUT="$ROOT/results/part1_slam/tf_validation/${EXPERIMENT}_${STAMP}"
+OUT="$ROOT/results/part1_slam/tf_validation/${EXPERIMENT}_${DATASET}_${STAMP}"
 
 if [[ ! -f "$LAUNCH_FILE" ]]; then
     echo "ERROR: Launch file not found: $LAUNCH_FILE"
@@ -139,6 +154,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 echo "Experiment: $EXPERIMENT"
+echo "Dataset: $DATASET"
 echo "Launch file: $LAUNCH_FILE"
 echo "ROS bag: $BAG"
 echo "Report directory: $OUT"
@@ -239,6 +255,7 @@ echo "Waiting for actual input messages..."
 
 TF_INPUT_OK=0
 SCAN_INPUT_OK=0
+ODOM_FILTERED_INPUT_OK=0
 
 if wait_for_message "/tf_bag" "$OUT/ready_tf_bag.txt" "reliable"; then
     TF_INPUT_OK=1
@@ -254,6 +271,15 @@ else
     echo "FAIL: No message received on /scan."
 fi
 
+if [[ "$IS_CARTOGRAPHER" -eq 1 ]]; then
+    if wait_for_message "/odometry/filtered" "$OUT/ready_odometry_filtered.txt" "reliable"; then
+        ODOM_FILTERED_INPUT_OK=1
+        echo "PASS: Received a message on /odometry/filtered."
+    else
+        echo "FAIL: No message received on /odometry/filtered."
+    fi
+fi
+
 TOPICS=(
     "/odom"
     "/tf_bag"
@@ -262,8 +288,12 @@ TOPICS=(
     "/scan"
     "/scan_for_slam"
     "/imu"
-    "/imu_ekf"
+    "/odometry/filtered"
 )
+
+if [[ "$EXPERIMENT" == "slam_toolbox_imu" ]]; then
+    TOPICS+=("/imu_ekf")
+fi
 
 for topic in "${TOPICS[@]}"; do
     safe_name="${topic#/}"
@@ -293,6 +323,16 @@ run_tf_probe() {
         > "$output" 2>&1 || true
 }
 
+run_echo_field_probe() {
+    local topic="$1"
+    local field="$2"
+    local output="$3"
+
+    timeout --signal=INT 5s \
+        ros2 topic echo "$topic" --once --field "$field" \
+        > "$output" 2>&1 || true
+}
+
 PROBE_PIDS=()
 
 if [[ "$TF_INPUT_OK" -eq 1 && "$SCAN_INPUT_OK" -eq 1 ]]; then
@@ -313,6 +353,13 @@ if [[ "$TF_INPUT_OK" -eq 1 && "$SCAN_INPUT_OK" -eq 1 ]]; then
     run_rate_probe "/scan_for_slam" "$OUT/hz_scan_for_slam.txt" &
     PROBE_PIDS+=("$!")
 
+    run_rate_probe "/odometry/filtered" "$OUT/hz_odometry_filtered.txt" &
+    PROBE_PIDS+=("$!")
+
+    run_echo_field_probe "/odometry/filtered" "header.frame_id" \
+        "$OUT/odom_filtered_frame_id.txt" &
+    PROBE_PIDS+=("$!")
+
     run_tf_probe "odom_combined" "base_footprint" \
         "$OUT/tf_odom_to_base.txt" &
     PROBE_PIDS+=("$!")
@@ -324,6 +371,12 @@ if [[ "$TF_INPUT_OK" -eq 1 && "$SCAN_INPUT_OK" -eq 1 ]]; then
     run_tf_probe "map" "base_footprint" \
         "$OUT/tf_map_to_base.txt" &
     PROBE_PIDS+=("$!")
+
+    if [[ "$EXPECTS_GYRO_TF" -eq 1 ]]; then
+        run_tf_probe "base_footprint" "gyro_link" \
+            "$OUT/tf_base_to_gyro.txt" &
+        PROBE_PIDS+=("$!")
+    fi
 
     for pid in "${PROBE_PIDS[@]}"; do
         wait "$pid" || true
@@ -368,6 +421,7 @@ check_status() {
 
 {
     echo "Experiment: $EXPERIMENT"
+    echo "Dataset: $DATASET"
     echo "Launch file: $LAUNCH_FILE"
     echo "Bag: $BAG"
     echo "Bag TF remapping: /tf -> /tf_bag"
@@ -395,12 +449,17 @@ check_status() {
     check_status "/tf_bag received messages" "$TF_INPUT_OK"
     check_status "/scan received messages" "$SCAN_INPUT_OK"
 
+    if [[ "$IS_CARTOGRAPHER" -eq 1 ]]; then
+        check_status "/odometry/filtered received messages" "$ODOM_FILTERED_INPUT_OK"
+    fi
+
     echo
     echo "=== TF lookup results ==="
 
     ODOM_TF_OK=0
     LASER_TF_OK=0
     MAP_TF_OK=0
+    GYRO_TF_OK=0
 
     check_file "$OUT/tf_odom_to_base.txt" 'Translation:' && ODOM_TF_OK=1
     check_file "$OUT/tf_base_to_laser.txt" 'Translation:' && LASER_TF_OK=1
@@ -410,6 +469,11 @@ check_status() {
     check_status "base_footprint -> laser" "$LASER_TF_OK"
     check_status "map -> base_footprint" "$MAP_TF_OK"
 
+    if [[ "$EXPECTS_GYRO_TF" -eq 1 ]]; then
+        check_file "$OUT/tf_base_to_gyro.txt" 'Translation:' && GYRO_TF_OK=1
+        check_status "base_footprint -> gyro_link (Cartographer tracking_frame)" "$GYRO_TF_OK"
+    fi
+
     echo
     echo "=== Topic-rate results ==="
 
@@ -418,18 +482,89 @@ check_status() {
     TF_RATE_OK=0
     SCAN_RATE_OK=0
     FILTERED_SCAN_RATE_OK=0
+    ODOM_FILTERED_RATE_OK=0
 
     check_file "$OUT/hz_odom.txt" 'average rate:' && ODOM_RATE_OK=1
     check_file "$OUT/hz_tf_bag.txt" 'average rate:' && TF_BAG_RATE_OK=1
     check_file "$OUT/hz_tf.txt" 'average rate:' && TF_RATE_OK=1
     check_file "$OUT/hz_scan.txt" 'average rate:' && SCAN_RATE_OK=1
     check_file "$OUT/hz_scan_for_slam.txt" 'average rate:' && FILTERED_SCAN_RATE_OK=1
+    check_file "$OUT/hz_odometry_filtered.txt" 'average rate:' && ODOM_FILTERED_RATE_OK=1
 
     check_status "/odom rate available" "$ODOM_RATE_OK"
     check_status "/tf_bag rate available" "$TF_BAG_RATE_OK"
     check_status "/tf rate available" "$TF_RATE_OK"
     check_status "/scan rate available" "$SCAN_RATE_OK"
     check_status "/scan_for_slam rate available" "$FILTERED_SCAN_RATE_OK"
+    check_status "/odometry/filtered rate available" "$ODOM_FILTERED_RATE_OK"
+
+    echo
+    echo "=== D1 Option B verification ==="
+
+    ODOM_FRAME_OK=0
+    check_file "$OUT/odom_filtered_frame_id.txt" 'odom_combined' && ODOM_FRAME_OK=1
+    check_status "/odometry/filtered header.frame_id == odom_combined" "$ODOM_FRAME_OK"
+
+    if [[ "$IS_CARTOGRAPHER" -eq 1 ]]; then
+        CARTO_ODOM_SUB_OK=0
+        if grep -q 'Node name: cartographer_node' \
+            "$OUT/topic_odometry_filtered_info.txt" 2>/dev/null; then
+            CARTO_ODOM_SUB_OK=1
+        fi
+        check_status "cartographer_node subscribes to /odometry/filtered" \
+            "$CARTO_ODOM_SUB_OK"
+    fi
+
+    if [[ "$EXPERIMENT" == "cartographer_imu" ]]; then
+        NO_IMU_FILTER_OK=1
+        if grep -q 'imu_covariance_filter_process' \
+            "$OUT/node_list.txt" 2>/dev/null; then
+            NO_IMU_FILTER_OK=0
+        fi
+        check_status "cartographer_imu has no imu_covariance_filter_process" \
+            "$NO_IMU_FILTER_OK"
+
+        CARTO_IMU_SUB_OK=0
+        if grep -q 'Node name: cartographer_node' \
+            "$OUT/topic_imu_info.txt" 2>/dev/null; then
+            CARTO_IMU_SUB_OK=1
+        fi
+        check_status "cartographer_node subscribes to /imu" \
+            "$CARTO_IMU_SUB_OK"
+    fi
+
+    if [[ "$EXPERIMENT" == "cartographer_no_imu" ]]; then
+        NO_CARTO_IMU_OK=1
+        if grep -q 'Node name: cartographer_node' \
+            "$OUT/topic_imu_info.txt" 2>/dev/null; then
+            NO_CARTO_IMU_OK=0
+        fi
+        check_status "cartographer_node does NOT subscribe to /imu" \
+            "$NO_CARTO_IMU_OK"
+    fi
+
+    if [[ "$EXPERIMENT" == "slam_toolbox_imu" ]]; then
+        IMU_FILTER_PRESENT_OK=0
+        if grep -q 'imu_covariance_filter_process' \
+            "$OUT/node_list.txt" 2>/dev/null; then
+            IMU_FILTER_PRESENT_OK=1
+        fi
+        check_status "slam_toolbox_imu has imu_covariance_filter_process" \
+            "$IMU_FILTER_PRESENT_OK"
+
+        IMU_EKF_RATE_OK=0
+        check_file "$OUT/hz_imu_ekf.txt" 'average rate:' && IMU_EKF_RATE_OK=1
+    fi
+
+    if [[ "$EXPERIMENT" == "slam_toolbox_no_imu" ]]; then
+        NO_IMU_FILTER_ST_OK=1
+        if grep -q 'imu_covariance_filter_process' \
+            "$OUT/node_list.txt" 2>/dev/null; then
+            NO_IMU_FILTER_ST_OK=0
+        fi
+        check_status "slam_toolbox_no_imu has no imu_covariance_filter_process" \
+            "$NO_IMU_FILTER_ST_OK"
+    fi
 
     echo
     echo "=== Runtime warning scan ==="
@@ -459,7 +594,9 @@ check_status() {
     fi
 
     echo "Report directory: $OUT"
-} | tee "$OUT/summary.txt"
+} > "$OUT/summary.txt"
+
+cat "$OUT/summary.txt"
 
 if [[ "$CHECKS_FAILED" -ne 0 ]]; then
     exit 1
