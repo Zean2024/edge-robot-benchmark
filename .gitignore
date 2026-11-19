@@ -1,29 +1,46 @@
-# 1. Ignore large datasets but keep directory structure
+# 1. Datasets
 datasets/raw/*
 datasets/processed/*
 !datasets/raw/.gitkeep
 !datasets/processed/.gitkeep
+!datasets/processed/README.md
 
-# 2. Ignore Python compilation cache
+# 2. Python
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
 
-# 3. Ignore backup and temporary files from editing
+# 3. Backup and temporary files
 *.bak
 *.backup
-*odom_only_backup
+*.tmp
+*odom_only_backup*
 *scan_topic_*
 *scan_gate_*
 *scan_routing_*
 *safe_shutdown_*
 
-# 4. Ignore massive logs and validation results from runs (keep structure & scripts)
-results/part1_slam/tf_validation/*/
-!results/part1_slam/tf_validation/*.py
-!results/part1_slam/tf_validation/*.md
-*.log
-*.csv
+# 4. Generated run artifacts
+results/part1_slam/runs/*
+!results/part1_slam/runs/.gitkeep
 
-# 5. Ignore ROS 2 bag files or database files accidentally generated
+results/part1_slam/tf_checks/*
+!results/part1_slam/tf_checks/.gitkeep
+
+results/part1_slam/tf_validation/*
+!results/part1_slam/tf_validation/.gitkeep
+!results/part1_slam/tf_validation/*.md
+!results/part1_slam/tf_validation/*.py
+
+results/part1_slam/evaluation/per_run/*
+!results/part1_slam/evaluation/per_run/.gitkeep
+
+# 5. Logs, ROS bags and binary artifacts
+*.log
+*.bag
 *.db3
 *.mcap
+*.pbstream
+*.tum
