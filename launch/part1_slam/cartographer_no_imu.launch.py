@@ -17,6 +17,7 @@ def generate_launch_description():
         project_dir, 'configs', 'part1_slam'
     )
 
+    # Cartographer no-IMU group uses a pure wheel-odometry EKF.
     ekf_params = os.path.join(config_dir, 'ekf_slam_toolbox_no_imu.yaml')
     tf_filter_script = os.path.join(
         project_dir,
@@ -36,6 +37,7 @@ def generate_launch_description():
     )
 
     # Provide the odometry TF required by the filter.
+    # This EKF fuses wheel odometry only (no IMU input).
     ekf_node = Node(
         package='robot_localization',
         executable='ekf_node',
@@ -47,6 +49,10 @@ def generate_launch_description():
         ],
     )
 
+    # Run Cartographer using filtered laser scans and EKF output odometry.
+    # Cartographer consumes /odometry/filtered instead of raw /odom so that
+    # its odometry input is semantically consistent with the SLAM Toolbox
+    # group and its header.frame_id matches odom_frame.
     cartographer_node = Node(
         package='cartographer_ros',
         executable='cartographer_node',
@@ -59,7 +65,7 @@ def generate_launch_description():
         ],
         remappings=[
             ('scan', '/scan_for_slam'),
-            ('odom', '/odom'),
+            ('odom', '/odometry/filtered'),
             ('imu', '/imu'),
         ],
     )

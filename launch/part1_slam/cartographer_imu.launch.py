@@ -20,9 +20,12 @@ def generate_launch_description():
         'part1_slam'
     )
 
+    # Under D1 Option B, the background EKF in this group uses the no-IMU
+    # parameters (pure wheel odometry) so that IMU is consumed exactly once,
+    # and only through Cartographer's native use_imu_data path.
     ekf_params = os.path.join(
         config_dir,
-        'ekf_slam_toolbox_imu.yaml'
+        'ekf_slam_toolbox_no_imu.yaml'
     )
 
     tf_filter_script = os.path.join(
@@ -31,14 +34,6 @@ def generate_launch_description():
         'part1_slam',
         'scripts',
         'tf_filter.py'
-    )
-
-    imu_filter_script = os.path.join(
-        project_dir,
-        'src',
-        'part1_slam',
-        'scripts',
-        'imu_covariance_filter.py'
     )
 
     config_basename = 'cartographer_imu.lua'
@@ -50,14 +45,8 @@ def generate_launch_description():
         name='tf_filter_process',
     )
 
-    # Publish /imu_ekf for the IMU-enabled EKF.
-    imu_filter = ExecuteProcess(
-        cmd=['python3', imu_filter_script, '--ros-args', '-p', 'use_sim_time:=true'],
-        output='screen',
-        name='imu_covariance_filter_process',
-    )
-
-    # Fuse wheel odometry and filtered IMU angular velocity.
+    # Provide the odometry TF and /odometry/filtered topic consumed by
+    # Cartographer. This EKF fuses wheel odometry only; IMU is not fused here.
     ekf_node = Node(
         package='robot_localization',
         executable='ekf_node',
@@ -69,7 +58,10 @@ def generate_launch_description():
         ],
     )
 
-    # Run Cartographer using filtered laser scans and the original IMU.
+    # Run Cartographer using filtered laser scans, the original IMU, and the
+    # EKF output odometry. Cartographer consumes /odometry/filtered instead of
+    # raw /odom so that its odometry input is semantically consistent with the
+    # no-IMU group, and IMU enters only via use_imu_data = true in the Lua file.
     cartographer_node = Node(
         package='cartographer_ros',
         executable='cartographer_node',
@@ -86,7 +78,7 @@ def generate_launch_description():
         ],
         remappings=[
             ('scan', '/scan_for_slam'),
-            ('odom', '/odom'),
+            ('odom', '/odometry/filtered'),
             ('imu', '/imu'),
         ],
     )
@@ -109,7 +101,6 @@ def generate_launch_description():
             description='Use the ROS bag simulation clock',
         ),
         tf_filter,
-        imu_filter,
         ekf_node,
         cartographer_node,
         occupancy_grid_node,
