@@ -15,8 +15,43 @@ from rclpy.qos import (
 from tf2_msgs.msg import TFMessage
 
 
+def _extract_gid_bytes(gid):
+    """Return an iterable of byte values from various gid representations.
+
+    Handles:
+      - None
+      - bytes / bytearray
+      - str (already formatted)
+      - dict with a 'data' key (rclpy Jazzy message_info)
+      - object with a .data attribute (rmw_gid_t)
+      - directly iterable sequences (list / array.array)
+    """
+    if gid is None:
+        return None
+    if isinstance(gid, str):
+        return gid
+    if isinstance(gid, (bytes, bytearray)):
+        return bytes(gid)
+    if isinstance(gid, dict):
+        return _extract_gid_bytes(gid.get("data"))
+    if hasattr(gid, "data"):
+        return _extract_gid_bytes(gid.data)
+    try:
+        return list(gid)
+    except TypeError:
+        return None
+
+
 def format_gid(gid):
-    return ".".join(f"{int(value):02x}" for value in gid)
+    extracted = _extract_gid_bytes(gid)
+    if extracted is None:
+        return "unknown"
+    if isinstance(extracted, str):
+        return extracted
+    try:
+        return ".".join(f"{int(value):02x}" for value in extracted)
+    except (TypeError, ValueError):
+        return "unknown"
 
 
 def normalize_frame(frame):
@@ -58,8 +93,17 @@ class TFEdgeAuditor(Node):
     def static_callback(self, message, message_info):
         self.record_message(message, message_info, "/tf_static")
 
+    @staticmethod
+    def _get_publisher_gid(message_info):
+        if message_info is None:
+            return None
+        if isinstance(message_info, dict):
+            return message_info.get("publisher_gid")
+        return getattr(message_info, "publisher_gid", None)
+
     def record_message(self, message, message_info, topic):
-        gid = format_gid(message_info.publisher_gid)
+        gid = format_gid(self._get_publisher_gid(message_info))
+
         self.total_messages[topic] += 1
 
         for transform in message.transforms:
@@ -95,7 +139,7 @@ class TFEdgeAuditor(Node):
                 continue
 
             for endpoint in endpoints:
-                gid = format_gid(endpoint.endpoint_gid)
+                gid = format_gid(getattr(endpoint, "endpoint_gid", None))
                 names[gid] = (
                     f"{endpoint.node_namespace}{endpoint.node_name}"
                     f" on {topic}"
