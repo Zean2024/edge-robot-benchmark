@@ -1,0 +1,30 @@
+{
+  "gt": "datasets/groundtruth/M2DGR-plus/anomaly.tum",
+  "est": "/mnt/e/Data/01-Study/LUT/BachelorThesis/repos/edge-robot-benchmark/results/part1_slam/runs/slam_toolbox_imu/anomaly_ros2/run_20261124_004650_r3/trajectory.tum",
+  "alignment": "SE(2) planar, Umeyama, scale-free",
+  "rpe": {
+    "delta": 1.0,
+    "unit": "meters"
+  },
+  "associated_poses": 216,
+  "path_length_m": 6.263,
+  "gt_path_length_m": 7.139,
+  "ate": {
+    "rmse": 0.6962030339156364,
+    "mean": 0.653967478583432,
+    "median": 0.7268158311982429,
+    "std": 0.238799500394296,
+    "min": 0.21291891048534797,
+    "max": 0.9832961736938439,
+    "n_pairs": 216
+  },
+  "rpe_translation": {
+    "rmse": 0.79066197735735,
+    "mean": 0.5578985271675715,
+    "median": 0.322444239406101,
+    "std": 0.5602638626780145,
+    "min": 0.021393713028540894,
+    "max": 1.5858074927379828,
+    "n_pairs": 187
+  }
+}

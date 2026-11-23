@@ -1,0 +1,10 @@
+run:                 run_20261124_004133_r2
+bag duration [s]:    46.43
+wall time [s]:       46.381
+play rate:           1.0
+throughput ratio:    1.001
+algorithm CPU %:     mean 31.791, p95 47.38, max 55.31
+algorithm RSS [MB]:  mean 214.4, max 229.8
+cgroup peak [MB]:    0.0
+scans forwarded:     458/460 (ratio 0.9957)
+trajectory samples:  825 (46.0 s covered)

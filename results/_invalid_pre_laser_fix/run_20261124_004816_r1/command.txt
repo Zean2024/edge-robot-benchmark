@@ -1,0 +1,10 @@
+experiment=cartographer_no_imu
+dataset=anomaly_ros2
+play_rate=1.0
+run_dir=/mnt/e/Data/01-Study/LUT/BachelorThesis/repos/edge-robot-benchmark/results/part1_slam/runs/cartographer_no_imu/anomaly_ros2/run_20261124_004816_r1
+date=2026-11-24T00:48:16+08:00
+host=Linux Zeannn 6.18.40.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Fri Jul 31 22:12:15 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+repo=/mnt/e/Data/01-Study/LUT/BachelorThesis/repos/edge-robot-benchmark
+git_rev=695de1bbdb14dbaea892b231bb06a044f6c9559b
+git_describe=695de1b-dirty
+command=/mnt/e/Data/01-Study/LUT/BachelorThesis/repos/edge-robot-benchmark/scripts/part1_slam_capture_run.sh cartographer_no_imu anomaly_ros2 r1

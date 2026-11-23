@@ -2,12 +2,19 @@
 \centering
 \caption{Computational cost per configuration (mean $\pm$ standard deviation over repeats).}
 \label{tab:resources}
-\begin{tabular}{llccccc}
+\pdftooltip{%
+\begin{tabular}{llcccc}
 \toprule
-Dataset & Configuration & cpu_mean & cpu_p95 & mem_max_mb & scan_ratio & rtf \\
+Dataset & Configuration & CPU [\%] & CPU p95 [\%] & Peak RSS [MB] & Scan forward ratio \\
 \midrule
-Anomaly & SLAM Toolbox (LiDAR + IMU) & 53.174 $\pm$ 2.114 & 75.770 $\pm$ 0.792 & 304.150 $\pm$ 0.212 & 0.990 $\pm$ 0.008 & 0.000 $\pm$ 0.000 \\
-Anomaly & SLAM Toolbox (LiDAR only) & 31.135 $\pm$ 0.597 & 47.950 $\pm$ 0.844 & 229.700 $\pm$ 0.100 & 0.996 $\pm$ 0.000 & 0.000 $\pm$ 0.000 \\
+Anomaly & Cartographer (LiDAR + IMU) & 46.190 $\pm$ 1.472 & 69.540 $\pm$ 2.009 & 213.033 $\pm$ 0.351 & 0.994 $\pm$ 0.001 \\
+Anomaly & Cartographer (LiDAR only) & 46.397 $\pm$ 2.750 & 70.447 $\pm$ 3.001 & 211.167 $\pm$ 1.002 & 0.994 $\pm$ 0.008 \\
+Anomaly & SLAM Toolbox (LiDAR + IMU) & 54.231 $\pm$ 1.775 & 76.423 $\pm$ 1.106 & 303.900 $\pm$ 0.100 & 0.997 $\pm$ 0.001 \\
+Anomaly & SLAM Toolbox (LiDAR only) & 28.336 $\pm$ 2.333 & 43.773 $\pm$ 7.350 & 229.800 $\pm$ 0.100 & 0.986 $\pm$ 0.017 \\
+Parking & Cartographer (LiDAR + IMU) & 66.828 $\pm$ 5.674 & 95.577 $\pm$ 1.008 & 301.633 $\pm$ 0.764 & 0.997 $\pm$ 0.001 \\
+Parking & Cartographer (LiDAR only) & 60.538 $\pm$ 1.805 & 83.090 $\pm$ 1.971 & 270.500 $\pm$ 3.297 & 0.995 $\pm$ 0.005 \\
+Parking & SLAM Toolbox (LiDAR + IMU) & 59.355 $\pm$ 0.520 & 77.173 $\pm$ 0.107 & 308.133 $\pm$ 1.447 & 0.995 $\pm$ 0.004 \\
+Parking & SLAM Toolbox (LiDAR only) & 37.375 $\pm$ 3.087 & 55.960 $\pm$ 4.691 & 235.000 $\pm$ 1.572 & 0.998 $\pm$ 0.001 \\
 \bottomrule
-\end{tabular}
+\end{tabular}}{Computational cost per configuration (mean $\pm$ standard deviation over repeats). Values are the mean and one standard deviation over the repeats of each cell.}
 \end{table}

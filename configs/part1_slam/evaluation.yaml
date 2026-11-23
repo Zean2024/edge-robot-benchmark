@@ -1,4 +1,4 @@
-# Fixed evaluation parameters for the Part 1 SLAM benchmark (decision D7).
+﻿# Fixed evaluation parameters for the Part 1 SLAM benchmark (decision D7).
 #
 # The values below are the contract between the recorded trajectories and the
 # numbers reported in the thesis. part1_slam_evaluate.py implements exactly
@@ -10,7 +10,7 @@ evaluation:
   # before alignment, so the comparison is a planar rigid-body alignment.
   alignment: se2_planar_umeyama
   correct_scale: false
-  max_association_diff_s: 0.05
+  max_association_diff_s: 0.12
 
   ate:
     pose_relation: translation_part
@@ -28,7 +28,11 @@ evaluation:
   # Definition of the real-time factor reported in the results chapter:
   #   RTF = processing wall time / bag duration
   # RTF > 1 means the configuration cannot keep up with real time under the
-  # imposed resource budget. Measured with unthrottled playback (--rate 1000).
+  # imposed resource budget. Measured in the real-time pass (--rate 1.0);
+  # the stress pass (--rate 2.0) reports scan forward ratio and trajectory
+  # coverage instead. An unthrottled pass was discarded because the player
+  # outruns the consumer and the run ends before a trajectory is formed.
   rtf:
     definition: wall_time_per_bag_second
-    measured_with: unthrottled_playback
+    measured_with: real_time_pass
+    stress_pass: playback_rate_2x

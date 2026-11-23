@@ -1,0 +1,83 @@
+{
+  "run_dir": "run_20261124_014555_rtf",
+  "bag_duration_s": 100.478380454,
+  "wall_time_s": 3.105,
+  "play_rate": "1000",
+  "throughput_ratio": 32.3602,
+  "rtf": 0.031,
+  "algorithm_cpu_pct": {
+    "n": 30,
+    "mean": 4.99,
+    "max": 19.77,
+    "p95": 13.88
+  },
+  "algorithm_memory_mb": {
+    "mean": 159.4,
+    "max": 200.6
+  },
+  "total_cpu_pct": {
+    "n": 30,
+    "mean": 18.685,
+    "max": 104.98,
+    "p95": 91.65
+  },
+  "cgroup_peak_memory_mb": 197.6,
+  "per_role_cpu_pct": {
+    "launcher": {
+      "n": 24,
+      "mean": 0.0,
+      "max": 0.0,
+      "p95": 0.0
+    },
+    "tf_filter": {
+      "n": 24,
+      "mean": 0.577,
+      "max": 3.96,
+      "p95": 1.98
+    },
+    "ekf": {
+      "n": 24,
+      "mean": 0.903,
+      "max": 7.91,
+      "p95": 3.96
+    },
+    "slam": {
+      "n": 24,
+      "mean": 4.018,
+      "max": 5.95,
+      "p95": 5.94
+    },
+    "slam_extra": {
+      "n": 24,
+      "mean": 0.74,
+      "max": 3.97,
+      "p95": 3.95
+    },
+    "recorder": {
+      "n": 20,
+      "mean": 9.593,
+      "max": 77.32,
+      "p95": 69.57
+    },
+    "sampler": {
+      "n": 30,
+      "mean": 0.584,
+      "max": 3.84,
+      "p95": 1.98
+    },
+    "bag_player": {
+      "n": 4,
+      "mean": 50.365,
+      "max": 67.35,
+      "p95": 67.35
+    }
+  },
+  "tf_filter": {},
+  "trajectory": {
+    "samples": 0,
+    "first_stamp": 0.0,
+    "last_stamp": 0.0,
+    "duration_s": 0.0
+  },
+  "scan_forward_ratio": 0.0
+}

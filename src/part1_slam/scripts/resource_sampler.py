@@ -66,7 +66,9 @@ def cgroup_dir():
         with open('/proc/self/cgroup', 'r', encoding='utf-8') as handle:
             for line in handle:
                 if line.startswith('0::'):
-                    return os.path.join('/sys/fs/cgroup', line.strip()[3:])
+                    # line[3:] is absolute ("/user.slice/..."), so plain
+                    # os.path.join would discard the /sys/fs/cgroup prefix.
+                    return '/sys/fs/cgroup' + line.strip()[3:]
     except OSError:
         pass
     return None

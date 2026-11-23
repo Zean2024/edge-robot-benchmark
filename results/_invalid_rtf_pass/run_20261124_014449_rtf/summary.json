@@ -1,0 +1,88 @@
+{
+  "run_dir": "run_20261124_014449_rtf",
+  "bag_duration_s": 100.478380454,
+  "wall_time_s": 4.162,
+  "play_rate": "1000",
+  "throughput_ratio": 24.1419,
+  "rtf": 0.041,
+  "algorithm_cpu_pct": {
+    "n": 27,
+    "mean": 8.971,
+    "max": 47.49,
+    "p95": 45.5
+  },
+  "algorithm_memory_mb": {
+    "mean": 130.7,
+    "max": 161.9
+  },
+  "total_cpu_pct": {
+    "n": 27,
+    "mean": 30.434,
+    "max": 106.85,
+    "p95": 104.85
+  },
+  "cgroup_peak_memory_mb": 200.9,
+  "per_role_cpu_pct": {
+    "launcher": {
+      "n": 22,
+      "mean": 0.969,
+      "max": 3.96,
+      "p95": 3.95
+    },
+    "tf_filter": {
+      "n": 22,
+      "mean": 5.285,
+      "max": 25.68,
+      "p95": 21.76
+    },
+    "ekf": {
+      "n": 22,
+      "mean": 4.389,
+      "max": 21.81,
+      "p95": 21.76
+    },
+    "slam": {
+      "n": 22,
+      "mean": 1.335,
+      "max": 7.91,
+      "p95": 5.94
+    },
+    "recorder": {
+      "n": 18,
+      "mean": 12.499,
+      "max": 77.23,
+      "p95": 71.47
+    },
+    "sampler": {
+      "n": 27,
+      "mean": 0.573,
+      "max": 1.99,
+      "p95": 1.98
+    },
+    "bag_player": {
+      "n": 6,
+      "mean": 52.958,
+      "max": 90.92,
+      "p95": 90.92
+    }
+  },
+  "tf_filter": {
+    "input_messages": 35,
+    "input_transforms": 53,
+    "dropped_odom_base": 8,
+    "dropped_dynamic_laser": 3,
+    "forwarded_transforms": 42,
+    "output_messages": 24,
+    "scans_received": 35,
+    "scans_forwarded": 5,
+    "scans_dropped_no_tf": 24,
+    "scans_dropped_overflow": 0
+  },
+  "trajectory": {
+    "samples": 0,
+    "first_stamp": 0.0,
+    "last_stamp": 0.0,
+    "duration_s": 0.0
+  },
+  "scan_forward_ratio": 0.1429
+}

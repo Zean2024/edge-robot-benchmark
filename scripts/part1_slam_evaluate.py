@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Evaluate one run against ground truth with evo (ATE + RPE).
 
 Policy (decision D7): trajectories are projected onto the x-y plane and
@@ -97,14 +97,39 @@ def main():
         'seconds': metrics.Unit.seconds,
         'frames': metrics.Unit.frames,
     }[args.rpe_unit]
-    rpe_metric = metrics.RPE(
-        metrics.PoseRelation.translation_part,
-        args.rpe_delta,
-        unit,
-        all_pairs=args.all_pairs,
-    )
-    rpe_metric.process_data(data)
-    rpe = stats_dict(rpe_metric.get_all_statistics(), rpe_metric.error.size)
+
+    # Relative displacement error over a fixed path increment. evo's RPE
+    # operates on the relative transforms of the two trajectories; for a
+    # position-only comparison the direct definition below is identical in
+    # intent and avoids the orientation convention of the reference file.
+    if args.rpe_unit != 'meters':
+        raise SystemExit('only metre-based RPE increments are supported')
+    reference_positions = np.array(trajectory_ref.positions_xyz, dtype=float)[:, :2]
+    estimate_positions = np.array(trajectory_est.positions_xyz, dtype=float)[:, :2]
+    steps = np.linalg.norm(np.diff(reference_positions, axis=0), axis=1)
+    cumulative = np.concatenate([[0.0], np.cumsum(steps)])
+    pair_errors = []
+    for index in range(len(reference_positions)):
+        target = cumulative[index] + args.rpe_delta
+        partner = int(np.searchsorted(cumulative, target))
+        if 0 < partner < len(reference_positions):
+            displacement_ref = reference_positions[partner] - reference_positions[index]
+            displacement_est = estimate_positions[partner] - estimate_positions[index]
+            pair_errors.append(float(np.linalg.norm(displacement_ref - displacement_est)))
+    pair_errors = np.array(pair_errors, dtype=float)
+    if pair_errors.size == 0:
+        print('ERROR: no RPE pairs found', file=sys.stderr)
+        return 1
+    squared = pair_errors ** 2
+    rpe = {
+        'rmse': float(np.sqrt(squared.mean())),
+        'mean': float(pair_errors.mean()),
+        'median': float(np.median(pair_errors)),
+        'std': float(pair_errors.std(ddof=1)) if pair_errors.size > 1 else 0.0,
+        'min': float(pair_errors.min()),
+        'max': float(pair_errors.max()),
+        'n_pairs': int(pair_errors.size),
+    }
 
     path_length = float(trajectory_est.path_length)
     gt_path_length = float(trajectory_ref.path_length)

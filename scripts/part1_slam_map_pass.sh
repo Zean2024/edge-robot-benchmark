@@ -3,7 +3,9 @@
 # Runs one clean pass per configuration on a single sequence and stores a
 # PGM/YAML pair. No metrics are recorded here; this is a figure-only pass.
 set -uo pipefail
+set +u
 source /opt/ros/jazzy/setup.bash
+set -u
 
 REPO="$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd)"
 DATASET="${1:-parking1}"

@@ -1,0 +1,30 @@
+ M .gitignore
+ M README.md
+ M configs/part1_slam/cartographer_imu.lua
+ M configs/part1_slam/cartographer_no_imu.lua
+ M configs/part1_slam/ekf_slam_toolbox_imu.yaml
+ M configs/part1_slam/ekf_slam_toolbox_no_imu.yaml
+ M configs/part1_slam/slam_toolbox_imu.yaml
+ M configs/part1_slam/slam_toolbox_no_imu.yaml
+ M configs/part2_edge_ai/README.md
+ M launch/part1_slam/cartographer_imu.launch.py
+ M launch/part1_slam/cartographer_no_imu.launch.py
+ M launch/part1_slam/slam_toolbox_imu.launch.py
+ M launch/part1_slam/slam_toolbox_no_imu.launch.py
+ M launch/part2_edge_ai/README.md
+ M scripts/part1_slam_capture_run.sh
+ M scripts/part1_slam_tf_edge_audit.py
+ M scripts/part1_slam_tf_validate.sh
+ M src/part1_slam/scripts/README.md
+ M src/part1_slam/scripts/imu_covariance_filter.py
+ M src/part1_slam/scripts/tf_filter.py
+ M src/part2_edge_ai/README.md
+?? configs/part1_slam/evaluation.yaml
+?? scripts/part1_slam_aggregate.py
+?? scripts/part1_slam_evaluate.py
+?? scripts/part1_slam_prepare_groundtruth.py
+?? scripts/part1_slam_run_all.sh
+?? scripts/part1_slam_run_limited.sh
+?? scripts/part1_slam_summarize_run.py
+?? src/part1_slam/scripts/resource_sampler.py
+?? src/part1_slam/scripts/trajectory_recorder.py

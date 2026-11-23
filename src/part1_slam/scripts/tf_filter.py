@@ -95,11 +95,13 @@ class TfFilter(Node):
 
         transform.transform.rotation.x = 0.0
         transform.transform.rotation.y = 0.0
-        # yaw = 0.00159 rad -> q = (x=0, y=0, z=sin(yaw/2), w=cos(yaw/2)).
-        # The previous version had z and w swapped, which rotated the laser
-        # frame by ~180 deg and corrupted every downstream scan match.
-        transform.transform.rotation.z = 0.000796327
-        transform.transform.rotation.w = 0.999999683
+        # The bag publishes a constant base_footprint -> laser transform of
+        # (0.180, 0.000, 0.320) with q = (x=0, y=0, z=0.999999683,
+        # w=0.000796327), i.e. a yaw of about pi. That is the physical
+        # mounting of the scanner, not an identity rotation, and it is
+        # identical for the Anomaly and Parking_01 sequences.
+        transform.transform.rotation.z = 0.999999683
+        transform.transform.rotation.w = 0.000796327
 
         self.static_broadcaster.sendTransform(transform)
         self.get_logger().info(

@@ -2,12 +2,19 @@
 \centering
 \caption{Trajectory accuracy per configuration (mean $\pm$ standard deviation over repeats).}
 \label{tab:ate_rpe}
+\pdftooltip{%
 \begin{tabular}{llcc}
 \toprule
-Dataset & Configuration & ate_rmse & rpe_rmse \\
+Dataset & Configuration & ATE RMSE [m] & RPE RMSE [m] \\
 \midrule
-Anomaly & SLAM Toolbox (LiDAR + IMU) & 0.694 $\pm$ 0.010 & 0.805 $\pm$ 0.003 \\
-Anomaly & SLAM Toolbox (LiDAR only) & 0.675 $\pm$ 0.005 & 0.694 $\pm$ 0.002 \\
+Anomaly & Cartographer (LiDAR + IMU) & 0.667 $\pm$ 0.022 & 0.543 $\pm$ 0.239 \\
+Anomaly & Cartographer (LiDAR only) & 0.630 $\pm$ 0.045 & 0.669 $\pm$ 0.219 \\
+Anomaly & SLAM Toolbox (LiDAR + IMU) & 0.581 $\pm$ 0.026 & 0.722 $\pm$ 0.022 \\
+Anomaly & SLAM Toolbox (LiDAR only) & 0.626 $\pm$ 0.027 & 0.612 $\pm$ 0.053 \\
+Parking & Cartographer (LiDAR + IMU) & 0.148 $\pm$ 0.002 & 0.152 $\pm$ 0.002 \\
+Parking & Cartographer (LiDAR only) & 0.104 $\pm$ 0.006 & 0.087 $\pm$ 0.005 \\
+Parking & SLAM Toolbox (LiDAR + IMU) & 0.071 $\pm$ 0.002 & 0.070 $\pm$ 0.001 \\
+Parking & SLAM Toolbox (LiDAR only) & 0.066 $\pm$ 0.001 & 0.065 $\pm$ 0.002 \\
 \bottomrule
-\end{tabular}
+\end{tabular}}{Trajectory accuracy per configuration (mean $\pm$ standard deviation over repeats). Values are the mean and one standard deviation over the repeats of each cell.}
 \end{table}

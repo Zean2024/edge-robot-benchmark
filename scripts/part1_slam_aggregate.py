@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Aggregate per-run metrics into thesis tables and figures.
 
 Reads every run directory that contains both summary.json and metrics.json,
@@ -101,11 +101,13 @@ def fmt(value, std, digits=3):
 
 
 def latex_table(rows, path, caption, label, columns):
+    alt = f'{caption} Values are the mean and one standard deviation over the repeats of each cell.'
     lines = [
         r'\begin{table}[!h]',
         r'\centering',
         rf'\caption{{{caption}}}',
         rf'\label{{{label}}}',
+        r'\pdftooltip{%',
         r'\begin{tabular}{ll' + 'c' * len(columns) + '}',
         r'\toprule',
         'Dataset & Configuration & ' + ' & '.join(label for _, label in columns) + r' \\',
@@ -114,7 +116,11 @@ def latex_table(rows, path, caption, label, columns):
     for row in rows:
         cells = ' & '.join(fmt(row[key], row[key + '_std']) for key, _ in columns)
         lines.append(f"{row['dataset_label']} & {row['label']} & {cells} \\\\")
-    lines += [r'\bottomrule', r'\end{tabular}', r'\end{table}']
+    lines += [
+        r'\bottomrule',
+        r'\end{tabular}' + '}' + '{' + alt + '}',
+        r'\end{table}',
+    ]
     open(path, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 
 
@@ -177,8 +183,7 @@ def main():
         'Computational cost per configuration (mean $\\pm$ standard deviation over repeats).',
         'tab:resources',
         [('cpu_mean', 'CPU [\\%]'), ('cpu_p95', 'CPU p95 [\\%]'),
-         ('mem_max_mb', 'Peak RSS [MB]'), ('scan_ratio', 'Scan forward ratio'),
-         ('rtf', 'RTF')],
+         ('mem_max_mb', 'Peak RSS [MB]'), ('scan_ratio', 'Scan forward ratio')],
     )
 
     summary_json = os.path.join(args.out_root, 'aggregate', 'aggregate.json')
