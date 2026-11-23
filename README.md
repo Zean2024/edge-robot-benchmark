@@ -2,88 +2,91 @@
 
 A resource-constrained benchmarking platform for edge robotics.
 
-- Part 1 (LUT): 2D LiDAR SLAM versus 2D LiDAR + IMU SLAM under a 1 CPU / 1 GB budget. Part 2 (HEBUT): edge AI / vision extension.
+- Part 1 (LUT): 2D LiDAR SLAM versus 2D LiDAR + IMU SLAM under a 1 CPU / 1 GB
+  budget. Part 2 (HEBUT): edge AI / vision extension.
 
 ## Prerequisites
 
-- Ubuntu 24.04 (WSL 2 with systemd enabled) and ROS 2 Jazzy Jalisco.
-- SLAM Toolbox, Cartographer, and `robot_localization` installed and sourced (`/opt/ros/jazzy/setup.bash`).
-- A Python virtual environment at `~/.venvs/part1` containing `evo`, `numpy`, and `matplotlib`.
-- A user systemd session. Docker is **not** required: the resource budget is enforced with a cgroup v2 user scope (decision D10).
+- Docker Engine inside the WSL 2 distribution (or any Linux host).
+- A Python virtual environment at `~/.venvs/part1` with `evo`, `numpy`,
+  `matplotlib`, `pandas` and `rosbags` (the evaluation runs on the host; the
+  experiments run inside the container).
+- Optional: TinyTeX (`~/.TinyTeX`) for compiling the thesis.
 
 ## Dataset layout
 
-Raw ROS 2 bags live outside the repository:
-
 ```text
 ~/data/M2DGR-plus/
-├── anomaly_ros2/     # ROS 2 bag directory
+├── anomaly_ros2/     # ROS 2 bag directory (sqlite3)
 └── parking1/         # ROS 2 bag directory
 ```
 
-Override the root with `PART1_DATA_ROOT`. M2DGR-plus also supplies the ground-truth text files (`<sequence>.txt`) alongside the bags.
+Override the root with `PART1_DATA_ROOT`. Raw ROS 1 bags are converted with
+`scripts/part1_slam_convert_bag.sh <source.bag> <destination>`, which keeps only
+`/scan`, `/tf`, `/odom` and `/imu`.
 
-## Ground truth conversion
+## One command
 
-M2DGR-plus stores ground truth as `timestamp x y z qw qx qy qz`; the evaluator expects TUM (`timestamp x y z qx qy qz qw`):
-
-```bash
-python3 scripts/part1_slam_prepare_groundtruth.py \
-    --source ~/data/M2DGR-plus/parking1.txt \
-    --output datasets/groundtruth/M2DGR-plus/parking1.tum
-```
-Repeat for the Anomaly sequence. The converted files are committed under `datasets/groundtruth/M2DGR-plus/`.
-
-## One run
-
-Run one configuration and dataset inside the 1 CPU / 1 GB scope:
+The full pipeline is orchestrated by a single script:
 
 ```bash
-PART1_PLAY_RATE=1.0 bash scripts/part1_slam_run_limited.sh \
-    slam_toolbox_no_imu anomaly_ros2 r1
-```
-Each run produces a self-describing directory under
-`results/part1_slam/runs/<experiment>/<dataset>/run_YYYYMMDD_HHMMSS_r1/`
-(command, git revision, config hashes, bag info, logs, `resources.csv`,
-`trajectory.tum`, `rtf.json`, and `summary.json`; the evaluator later adds
-`metrics.json`).
-
-## Full suite
-
-```bash
-bash scripts/part1_slam_run_all.sh
+bash scripts/part1_slam_pipeline.sh            # everything
+bash scripts/part1_slam_pipeline.sh --help     # options
 ```
 
-The driver runs 4 configurations × 2 datasets × 3 real-time repeats, plus one
-unthrottled pass per cell for RTF (32 runs), evaluates every run, and aggregates
-at the end. Useful environment overrides: `PART1_REPEATS`, `PART1_SKIP_RTF`,
-`PART1_DATASETS`, `PART1_EXPERIMENTS`, `PART1_RESULTS_ROOT`.
+It converts the ground truth, builds the image, runs the real-time suite inside
+the container, runs the 2x stress pass, regenerates the maps, aggregates the
+tables and figures, copies the thesis assets and compiles the PDF. Steps can be
+skipped with `--skip-build`, `--skip-suite`, `--skip-stress`, `--skip-maps` and
+`--skip-thesis`; `--fresh` archives the previous run tree; `--repeats N` sets
+the number of real-time repeats.
 
-## Evaluation
-
-Evaluate one run against ground truth with the fixed D7 settings:
+## Individual steps
 
 ```bash
+# build the image once
+docker build -t part1:jazzy -f docker/Dockerfile .
+
+# one run inside the 1 CPU / 1 GB container
+PART1_PLAY_RATE=1.0 bash docker/run_experiment.sh slam_toolbox_no_imu anomaly_ros2 r1
+
+# the real-time suite (4 configs x 2 datasets x 3 repeats) and evaluation
+PART1_EXEC=docker PART1_SKIP_RTF=1 PART1_REPEATS=3 bash scripts/part1_slam_run_all.sh
+
+# stress pass at twice the recorded rate
+PART1_RUNNER=docker/run_experiment.sh bash scripts/part1_slam_rate_pass.sh
+
+# occupancy grids
+docker run --rm --network host --cpus=1 --memory=1g --memory-swap=1g \
+  -v "$PWD":/repo -v "$HOME/data/M2DGR-plus":/data:ro -e PART1_DATA_ROOT=/data \
+  part1:jazzy bash /repo/scripts/part1_slam_map_pass.sh parking1
+
+# evaluate one run against ground truth
 ~/.venvs/part1/bin/python scripts/part1_slam_evaluate.py \
-    --gt datasets/groundtruth/M2DGR-plus/anomaly.tum \
-    --est results/part1_slam/runs/slam_toolbox_no_imu/anomaly_ros2/<run>/trajectory.tum \
-    --run-dir results/part1_slam/runs/slam_toolbox_no_imu/anomaly_ros2/<run>
+  --gt datasets/groundtruth/M2DGR-plus/anomaly.tum \
+  --est results/part1_slam/runs/<experiment>/<dataset>/<run>/trajectory.tum \
+  --run-dir results/part1_slam/runs/<experiment>/<dataset>/<run> --max-diff 0.12
+
+# aggregate, plot and copy assets into the thesis repository
+~/.venvs/part1/bin/python scripts/part1_slam_aggregate.py
+~/.venvs/part1/bin/python scripts/part1_slam_plot_trajectories.py
+bash scripts/part1_slam_thesis_assets.sh
 ```
 
-## Aggregation
+## Resource budget
 
-```bash
-~/.venvs/part1/bin/python scripts/part1_slam_aggregate.py \
-    --runs-root results/part1_slam/runs \
-    --out-root results/part1_slam/evaluation
-```
+Every capture runs in a container started with
+`--cpus=1 --memory=1g --memory-swap=1g --network host`. The limits are the
+cgroup v2 CPU quota and memory ceiling (`cpu.max`, `memory.max`,
+`memory.swap.max`), the same controllers a host-side `systemd-run` scope uses;
+that scope is retained as a fallback through
+`scripts/part1_slam_run_limited.sh`.
 
 ## Where results land
 
-- `results/part1_slam/runs/<experiment>/<dataset>/run_*/` — immutable raw runs.
-- `results/part1_slam/evaluation/aggregate/` — `per_run.csv`, `aggregate.json`, LaTeX tables.
-- `results/part1_slam/evaluation/figures/` — thesis-ready PDF figures.
-
-The resource limit is applied by `scripts/part1_slam_run_limited.sh` through
-`systemd-run --user --scope --collect -p CPUQuota=100% -p MemoryMax=1G -p MemorySwapMax=0`,
-the same kernel controllers that `docker run --cpus=1 --memory=1g` configures.
+- `results/part1_slam/runs/<experiment>/<dataset>/run_*/` - immutable raw runs
+  (command, git revision, config hashes, bag info, logs, `resources.csv`,
+  `trajectory.tum`, `summary.json`, `metrics.json`).
+- `results/part1_slam/evaluation/aggregate/` - `per_run.csv`, `aggregate.json`,
+  LaTeX tables.
+- `results/part1_slam/evaluation/figures/` - thesis-ready PDF figures.
