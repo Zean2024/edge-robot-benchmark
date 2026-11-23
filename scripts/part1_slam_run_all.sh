@@ -26,6 +26,13 @@ SKIP_RTF="${PART1_SKIP_RTF:-0}"
 RESULTS="${PART1_RESULTS_ROOT:-$REPO/results/part1_slam/runs}"
 EVAL_PY="$HOME/.venvs/part1/bin/python"
 
+# Execution mechanism: cgroup scope on the host (default) or Docker container.
+if [[ "${PART1_EXEC:-cgroup}" == docker ]]; then
+    RUNNER="$REPO/docker/run_experiment.sh"
+else
+    RUNNER="$HERE/part1_slam_run_limited.sh"
+fi
+
 if [[ -n "${PART1_EXPERIMENTS:-}" ]]; then
     read -r -a EXPERIMENTS <<< "$PART1_EXPERIMENTS"
 else
@@ -54,7 +61,7 @@ run_once() {
     echo "=================================================================="
     echo "[$(date +%H:%M:%S)] $experiment / $dataset / $tag (rate $rate)"
     echo "=================================================================="
-    PART1_PLAY_RATE="$rate" bash "$HERE/part1_slam_run_limited.sh" \
+    PART1_PLAY_RATE="$rate" bash "$RUNNER" \
         "$experiment" "$dataset" "$tag" || {
         echo "WARNING: capture failed for $experiment/$dataset/$tag"
         return 1

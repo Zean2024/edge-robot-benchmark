@@ -13,7 +13,7 @@ cd "$REPO" || exit 1
 for DATASET in anomaly_ros2 parking1; do
   for EXPERIMENT in slam_toolbox_no_imu slam_toolbox_imu cartographer_no_imu cartographer_imu; do
     echo "===== $EXPERIMENT / $DATASET @2x ====="
-    PART1_PLAY_RATE=2.0 bash scripts/part1_slam_run_limited.sh "$EXPERIMENT" "$DATASET" x2 || echo "FAILED"
+    PART1_PLAY_RATE=2.0 bash "${PART1_RUNNER:-scripts/part1_slam_run_limited.sh}" "$EXPERIMENT" "$DATASET" x2 || echo "FAILED"
     sleep 2
   done
 done

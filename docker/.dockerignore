@@ -1,0 +1,11 @@
+datasets
+results
+build
+build_tex
+*.log
+*.bag
+*.db3
+*.mcap
+*.pbstream
+*.tum
+.git
