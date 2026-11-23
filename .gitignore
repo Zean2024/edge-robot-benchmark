@@ -62,3 +62,7 @@ results/part1_slam/evaluation/figures/*
 *.mcap
 *.pbstream
 *.tum
+
+# Superseded or invalid run batches
+results/_invalid*/
+results/part1_slam/maps/
