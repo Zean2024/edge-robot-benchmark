@@ -66,3 +66,6 @@ results/part1_slam/evaluation/figures/*
 # Superseded or invalid run batches
 results/_invalid*/
 results/part1_slam/maps/
+
+# Development passes that are not the reported results
+results/_*/
