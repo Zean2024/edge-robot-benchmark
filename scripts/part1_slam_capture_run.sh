@@ -1,257 +1,163 @@
 #!/usr/bin/env bash
+# ------------------------------------------------------------------------------
+# part1_slam_capture_run.sh - one controlled SLAM run under a resource budget
+#
+#   usage: part1_slam_capture_run.sh EXPERIMENT DATASET [RUN_TAG]
+#
+#   EXPERIMENT : slam_toolbox_no_imu | slam_toolbox_imu
+#                cartographer_no_imu | cartographer_imu
+#   DATASET    : anomaly | parking1 | ... (a bag directory under PART1_DATA_ROOT)
+#   RUN_TAG    : optional suffix, e.g. r1
+#
+# Environment:
+#   PART1_DATA_ROOT     default $HOME/data/M2DGR-plus
+#   PART1_RESULTS_ROOT  default <repo>/results/part1_slam/runs
+#   PART1_PLAY_RATE     default 1.0 (use 1000 for the unthrottled RTF pass)
+#   PART1_MAX_WALL      optional hard wall-clock cap in seconds
+#
+# Every run directory is self-describing: command, git revision, config hashes,
+# bag info, launch log, bag log, resource samples, TF filter counters,
+# trajectory, and a summary.json. No number in the thesis may come from
+# anywhere else.
+# ------------------------------------------------------------------------------
 set -uo pipefail
 
-cd "$HOME/edge-robot-benchmark" || exit 1
+SCRIPT_PATH="$(realpath "${BASH_SOURCE[0]}")"
+REPO="$(cd "$(dirname "$SCRIPT_PATH")/.." && pwd)"
 
-# ------------------------------------------------------------------------------
-# 1. Parameter Parsing & Validation
-# ------------------------------------------------------------------------------
-EXPERIMENT="${1:-slam_toolbox_no_imu}"
-DATASET="${2:-anomaly_ros2}"
+if [[ $# -lt 2 ]]; then
+    sed -n '2,20p' "$SCRIPT_PATH"
+    exit 2
+fi
 
-LAUNCH_FILE="launch/part1_slam/${EXPERIMENT}.launch.py"
-BAG_PATH="datasets/processed/M2DGR-plus/${DATASET}"
+EXPERIMENT="$1"
+DATASET="$2"
+RUN_TAG="${3:-}"
 
-usage() {
-    echo "Usage: $0 [EXPERIMENT] [DATASET]"
-    echo "  EXPERIMENT: slam_toolbox_no_imu | slam_toolbox_imu | cartographer_no_imu | cartographer_imu (default: slam_toolbox_no_imu)"
-    echo "  DATASET:    anomaly_ros2 | Parking_02_ros2 | ... (default: anomaly_ros2)"
-}
+DATA_ROOT="${PART1_DATA_ROOT:-$HOME/data/M2DGR-plus}"
+RESULTS_ROOT="${PART1_RESULTS_ROOT:-$REPO/results/part1_slam/runs}"
+PLAY_RATE="${PART1_PLAY_RATE:-1.0}"
+MAX_WALL="${PART1_MAX_WALL:-0}"
 
-if [[ ! -f "$LAUNCH_FILE" ]]; then
-    echo "ERROR: Launch file not found: $LAUNCH_FILE"
-    usage
+BAG="$DATA_ROOT/$DATASET"
+LAUNCH="$REPO/launch/part1_slam/${EXPERIMENT}.launch.py"
+RECORDER="$REPO/src/part1_slam/scripts/trajectory_recorder.py"
+SAMPLER="$REPO/src/part1_slam/scripts/resource_sampler.py"
+
+if [[ ! -f "$LAUNCH" ]]; then
+    echo "ERROR: missing launch file $LAUNCH" >&2
+    exit 1
+fi
+if [[ ! -d "$BAG" ]]; then
+    echo "ERROR: missing bag directory $BAG" >&2
     exit 1
 fi
 
-if [[ ! -d "$BAG_PATH" && ! -f "$BAG_PATH/metadata.yaml" ]]; then
-    echo "ERROR: ROS bag dataset not found: $BAG_PATH"
-    usage
-    exit 1
-fi
-
-RUN_DIR="results/part1_slam/${EXPERIMENT}/${DATASET}_$(date +%Y%m%d_%H%M%S)"
+STAMP="$(date +%Y%m%d_%H%M%S)"
+SUFFIX=""
+[[ -n "$RUN_TAG" ]] && SUFFIX="_${RUN_TAG}"
+RUN_DIR="$RESULTS_ROOT/$EXPERIMENT/$DATASET/run_${STAMP}${SUFFIX}"
 mkdir -p "$RUN_DIR"
 RUN_DIR="$(realpath "$RUN_DIR")"
 
+set +u
+source /opt/ros/jazzy/setup.bash
+set -u
+cd "$REPO" || exit 1
+
 LAUNCH_PID=""
 BAG_PID=""
-STARTED_PID=""
-MONITORS=()
+RECORDER_PID=""
+SAMPLER_PID=""
 CLEANING=0
 
-# ------------------------------------------------------------------------------
-# 2. Cleanup Stale Project Processes
-# ------------------------------------------------------------------------------
-clean_stale_project_processes() {
-python3 - <<'PY'
-import os
-import signal
-import time
-
-patterns = [
-    "ros2 launch launch/part1_slam/",
-    "ros2 bag play datasets/processed/",
-    "src/part1_slam/scripts/tf_filter.py",
-    "src/part1_slam/scripts/imu_covariance_filter.py",
-    "/opt/ros/jazzy/lib/robot_localization/ekf_node",
-    "/opt/ros/jazzy/lib/slam_toolbox/async_slam_toolbox_node",
-    "/opt/ros/jazzy/lib/cartographer_ros/cartographer_node",
-    "ros2 topic hz",
-    "tf2_echo",
-    "ros2 topic echo /map",
-    "scripts/part1_slam/clock_rate_monitor.py",
-]
-
-def get_state(pid):
-    try:
-        content = open(f"/proc/{pid}/stat").read()
-        return content.rsplit(")", 1)[1].strip().split()[0]
-    except (OSError, IndexError):
-        return None
-
-matches = []
-for entry in os.scandir("/proc"):
-    if not entry.name.isdigit():
-        continue
-    pid = int(entry.name)
-    if pid == os.getpid():
-        continue
-    try:
-        raw = open(f"/proc/{pid}/cmdline", "rb").read()
-        cmd = raw.replace(b"\0", b" ").decode(errors="replace").strip()
-    except OSError:
-        continue
-    if cmd and any(pattern in cmd for pattern in patterns):
-        matches.append((pid, cmd))
-
-if matches:
-    print("Cleaning leftover project processes:")
-    for pid, cmd in matches:
-        print(f"  PID {pid}: {cmd[:180]}")
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            print(f"  No permission to signal PID {pid}")
-
-    deadline = time.monotonic() + 3.0
-    while time.monotonic() < deadline:
-        if all(get_state(pid) in (None, "Z", "X") for pid, _ in matches):
-            break
-        time.sleep(0.1)
-
-    for pid, _ in matches:
-        if get_state(pid) not in (None, "Z", "X"):
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-else:
-    print("No leftover processes from this diagnostic workflow.")
-PY
-}
-
-process_group_alive() {
-    local pgid="${1:-}"
-    [[ -n "$pgid" ]] || return 1
-
-    ps -eo pgid=,stat= 2>/dev/null |
-        awk -v target="$pgid" \
-        '$1 == target && $2 !~ /^[ZX]/ { found=1 }
-         END { exit(found ? 0 : 1) }'
-}
-
-signal_group() {
-    local sig="$1"
-    local pid="$2"
+stop_group() {
+    local pid="${1:-}"
     [[ -n "$pid" ]] || return 0
-
-    if process_group_alive "$pid"; then
-        kill -s "$sig" -- "-$pid" 2>/dev/null || true
-    fi
+    kill -s INT -- "-$pid" 2>/dev/null || kill -s INT "$pid" 2>/dev/null || true
 }
 
-start_group() {
-    local logfile="$1"
-    shift
-
-    setsid bash -c 'trap - INT TERM; exec "$@"' _ "$@" \
-        >"$logfile" 2>&1 &
-    STARTED_PID=$!
+kill_group() {
+    local pid="${1:-}"
+    [[ -n "$pid" ]] || return 0
+    kill -s TERM -- "-$pid" 2>/dev/null || kill -s TERM "$pid" 2>/dev/null || true
 }
 
 cleanup() {
     local rc=$?
-
-    if [[ "${CLEANING:-0}" -eq 1 ]]; then
-        return 0
-    fi
+    [[ "$CLEANING" -eq 1 ]] && return 0
     CLEANING=1
-
     trap - EXIT INT TERM
-    trap '' INT TERM
 
-    echo
-    echo "Stopping diagnostic processes (bounded cleanup)..."
-
-    local -a all_pids=(
-        "${MONITORS[@]}"
-        "${BAG_PID:-}"
-        "${LAUNCH_PID:-}"
-    )
-    local p alive i
-
-    for p in "${MONITORS[@]}"; do
-        [[ -n "$p" ]] && signal_group TERM "$p" || true
+    stop_group "${RECORDER_PID:-}"
+    kill_group "${SAMPLER_PID:-}"
+    kill_group "${BAG_PID:-}"
+    kill_group "${LAUNCH_PID:-}"
+    sleep 2
+    for pid in "${RECORDER_PID:-}" "${SAMPLER_PID:-}" "${BAG_PID:-}" "${LAUNCH_PID:-}"; do
+        [[ -n "$pid" ]] || continue
+        kill -s KILL -- "-$pid" 2>/dev/null || true
     done
-    signal_group INT "${BAG_PID:-}"
-    signal_group INT "${LAUNCH_PID:-}"
-
-    for i in $(seq 1 20); do
-        alive=0
-        for p in "${all_pids[@]}"; do
-            [[ -n "$p" ]] || continue
-            if process_group_alive "$p"; then
-                alive=1
-            fi
-        done
-        [[ "$alive" -eq 0 ]] && break
-        sleep 0.25
-    done
-
-    for p in "${all_pids[@]}"; do
-        [[ -n "$p" ]] && signal_group TERM "$p" || true
-    done
-    sleep 0.3
-
-    for p in "${all_pids[@]}"; do
-        [[ -n "$p" ]] && signal_group KILL "$p" || true
-    done
-    sleep 0.3
-
-    for p in "${all_pids[@]}"; do
-        [[ -n "$p" ]] || continue
-        if ! process_group_alive "$p"; then
-            wait "$p" 2>/dev/null || true
-        else
-            echo "WARNING: process group $p is still alive after SIGKILL."
-        fi
-    done
-
-    echo "Diagnostic cleanup finished."
     exit "$rc"
 }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+trap cleanup EXIT INT TERM
 
 echo "=========================================================="
-echo " Starting Benchmarking Run"
-echo " Experiment: $EXPERIMENT"
-echo " Dataset:    $DATASET"
-echo " Launch:     $LAUNCH_FILE"
-echo " Bag:        $BAG_PATH"
-echo " Results:    $RUN_DIR"
+echo " run:        $EXPERIMENT / $DATASET"
+echo " run dir:    $RUN_DIR"
+echo " bag:        $BAG"
+echo " play rate:  $PLAY_RATE"
 echo "=========================================================="
-echo "Checking for leftover processes from an earlier run..."
-clean_stale_project_processes
 
-start_group "$RUN_DIR/launch.log" ros2 launch "$LAUNCH_FILE"
-LAUNCH_PID="$STARTED_PID"
+# ---------------------------------------------------------------- provenance
+{
+    echo "experiment=$EXPERIMENT"
+    echo "dataset=$DATASET"
+    echo "play_rate=$PLAY_RATE"
+    echo "run_dir=$RUN_DIR"
+    echo "date=$(date --iso-8601=seconds)"
+    echo "host=$(uname -a)"
+    echo "repo=$REPO"
+    echo "git_rev=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
+    echo "git_describe=$(git -C "$REPO" describe --always --dirty 2>/dev/null || echo unknown)"
+    echo "command=$0 $*"
+} > "$RUN_DIR/command.txt"
+git -C "$REPO" status --porcelain > "$RUN_DIR/git_status.txt" 2>&1 || true
 
-echo "Waiting for SLAM node lifecycle and subscriptions..."
+sha256sum \
+    "$LAUNCH" \
+    "$REPO/launch/part1_slam/"*.launch.py \
+    "$REPO/configs/part1_slam/"*.lua \
+    "$REPO/configs/part1_slam/"*.yaml \
+    "$REPO/scripts/part1_slam_capture_run.sh" \
+    "$REPO/src/part1_slam/scripts/tf_filter.py" \
+    "$REPO/src/part1_slam/scripts/imu_covariance_filter.py" \
+    "$REPO/src/part1_slam/scripts/trajectory_recorder.py" \
+    2>/dev/null | sed "s#$REPO/##" > "$RUN_DIR/config_hashes.txt"
+
+ros2 bag info "$BAG" > "$RUN_DIR/bag_info.txt" 2>&1 || true
+
+# ------------------------------------------------------------------- launch
+echo "Launching $EXPERIMENT ..."
+setsid ros2 launch "./launch/part1_slam/${EXPERIMENT}.launch.py" \
+    > "$RUN_DIR/launch.log" 2>&1 &
+LAUNCH_PID=$!
+
+SLAM_NODE="slam_toolbox"
+[[ "$EXPERIMENT" == cartographer* ]] && SLAM_NODE="cartographer_node"
+
 READY=0
-IS_SLAM_TOOLBOX=0
-if [[ "$EXPERIMENT" == slam_toolbox* ]]; then
-    IS_SLAM_TOOLBOX=1
-fi
-
-for i in $(seq 1 60); do
-    NODES="$(timeout 3s ros2 node list 2>/dev/null || true)"
-    SCAN_INFO="$(timeout 3s ros2 topic info /scan --verbose 2>/dev/null || true)"
-    FILTERED_SCAN_INFO="$(timeout 3s ros2 topic info /scan_for_slam --verbose 2>/dev/null || true)"
-    TF_INFO="$(timeout 3s ros2 topic info /tf_bag --verbose 2>/dev/null || true)"
-
-    NODE_READY=0
-    if [[ "$IS_SLAM_TOOLBOX" -eq 1 ]]; then
-        SLAM_STATE="$(timeout 3s ros2 lifecycle get /slam_toolbox 2>/dev/null || true)"
-        if printf '%s\n' "$SLAM_STATE" | grep -Eqi 'active' && printf '%s\n' "$NODES" | grep -qx '/slam_toolbox'; then
-            NODE_READY=1
-        fi
-    else
-        if printf '%s\n' "$NODES" | grep -qx '/cartographer_node'; then
-            NODE_READY=1
-        fi
+for _ in $(seq 1 90); do
+    if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+        echo "ERROR: launch died during startup" >&2
+        break
     fi
-
-    if [[ "$NODE_READY" -eq 1 ]] &&
-       printf '%s\n' "$NODES" | grep -qx '/ekf_filter_node' &&
-       printf '%s\n' "$NODES" | grep -qx '/tf_filter' &&
-       printf '%s\n' "$SCAN_INFO" | grep -q 'Node name: tf_filter' &&
-       printf '%s\n' "$FILTERED_SCAN_INFO" | grep -q 'Node name: ' &&
-       printf '%s\n' "$TF_INFO" | grep -q 'Node name: tf_filter'; then
+    NODES="$(timeout 3 ros2 node list 2>/dev/null || true)"
+    PUBLISHERS="$(timeout 3 ros2 topic info /scan_for_slam --verbose 2>/dev/null || true)"
+    if grep -qx "/$SLAM_NODE" <<<"$NODES" \
+        && grep -qx "/tf_filter" <<<"$NODES" \
+        && grep -qx "/ekf_filter_node" <<<"$NODES" \
+        && grep -q 'Node name: tf_filter' <<<"$PUBLISHERS"; then
         READY=1
         break
     fi
@@ -259,101 +165,112 @@ for i in $(seq 1 60); do
 done
 
 if [[ "$READY" -ne 1 ]]; then
-    echo "ERROR: required nodes/subscriptions did not become ready."
-    ros2 node list 2>&1 || true
-    if [[ "$IS_SLAM_TOOLBOX" -eq 1 ]]; then
-        ros2 lifecycle get /slam_toolbox 2>&1 || true
-    fi
-    tail -n 80 "$RUN_DIR/launch.log"
+    echo "ERROR: stack did not become ready" >&2
+    tail -40 "$RUN_DIR/launch.log" >&2
     exit 1
 fi
 
-echo "SLAM node is active; starting rosbag player..."
-sleep 2
+if [[ "$SLAM_NODE" == "slam_toolbox" ]]; then
+    for _ in $(seq 1 30); do
+        STATE="$(timeout 3 ros2 lifecycle get /slam_toolbox 2>/dev/null || true)"
+        grep -q 'active' <<<"$STATE" && break
+        sleep 1
+    done
+    timeout 3 ros2 lifecycle get /slam_toolbox > "$RUN_DIR/lifecycle.txt" 2>&1 || true
+fi
 
-start_group "$RUN_DIR/bag.log" \
-    ros2 bag play "$BAG_PATH" \
-    --clock --rate 0.5 --remap /tf:=/tf_bag
-BAG_PID="$STARTED_PID"
+# ------------------------------------------------------------ instrumentation
+echo "Starting trajectory recorder and resource sampler ..."
+setsid python3 "$RECORDER" \
+    --ros-args \
+    -p use_sim_time:=true \
+    -p output_file:="$RUN_DIR/trajectory.tum" \
+    -p map_frame:=map \
+    -p base_frame:=base_footprint \
+    -p sample_period:=0.05 \
+    > "$RUN_DIR/recorder.log" 2>&1 &
+RECORDER_PID=$!
 
-# Start all monitors in separate groups while the bag is playing.
-start_group "$RUN_DIR/scan_hz.log" \
-    timeout --signal=TERM --kill-after=2s 900 \
-    ros2 topic hz --window 10 /scan
-MONITORS+=("$STARTED_PID")
+setsid python3 "$SAMPLER" \
+    --out "$RUN_DIR/resources.csv" \
+    --interval 0.5 \
+    --peak-file "$RUN_DIR/cgroup_memory_peak.txt" \
+    > "$RUN_DIR/sampler.log" 2>&1 &
+SAMPLER_PID=$!
 
-start_group "$RUN_DIR/scan_filtered_hz.log" \
-    timeout --signal=TERM --kill-after=2s 900 \
-    ros2 topic hz --window 10 /scan_for_slam
-MONITORS+=("$STARTED_PID")
+sleep 1
 
-start_group "$RUN_DIR/odom_hz.log" \
-    timeout --signal=TERM --kill-after=2s 900 \
-    ros2 topic hz --window 10 /odometry/filtered
-MONITORS+=("$STARTED_PID")
+# ------------------------------------------------------------------ playback
+echo "Playing bag ..."
+PLAY_START=$(date +%s.%N)
+setsid ros2 bag play "$BAG" \
+    --clock \
+    --rate "$PLAY_RATE" \
+    --topics /scan /tf /odom /imu \
+    --remap /tf:=/tf_bag \
+    > "$RUN_DIR/bag.log" 2>&1 &
+BAG_PID=$!
 
-start_group "$RUN_DIR/clock_hz.log" \
-    timeout --signal=TERM --kill-after=2s 900 \
-    ros2 topic hz --window 10 /clock
-MONITORS+=("$STARTED_PID")
-
-start_group "$RUN_DIR/map_hz.log" \
-    timeout --signal=TERM --kill-after=2s 900 \
-    ros2 topic hz --window 5 /map
-MONITORS+=("$STARTED_PID")
-
-start_group "$RUN_DIR/tf_odom_base.log" \
-    timeout --signal=TERM --kill-after=2s 900 \
-    ros2 run tf2_ros tf2_echo \
-    odom_combined base_footprint --ros-args -p use_sim_time:=true
-MONITORS+=("$STARTED_PID")
-
-start_group "$RUN_DIR/tf_map_base.log" \
-    timeout --signal=TERM --kill-after=2s 900 \
-    ros2 run tf2_ros tf2_echo \
-    map base_footprint --ros-args -p use_sim_time:=true
-MONITORS+=("$STARTED_PID")
-
-start_group "$RUN_DIR/map_header.log" \
-    timeout --signal=TERM --kill-after=2s 60 \
-    ros2 topic echo /map --once --field header
-MONITORS+=("$STARTED_PID")
-
-echo '"time","pid","cpu_percent","memory_percent","elapsed","command"' \
-    > "$RUN_DIR/resources.csv"
-
-echo "Monitoring rosbag playback, topics, TF and resources..."
-SECONDS=0
+BAG_DURATION="$(awk '/Duration:/ {gsub(/s$/,"",$2); print $2; exit}' "$RUN_DIR/bag_info.txt" 2>/dev/null)"
+[[ -z "$BAG_DURATION" ]] && BAG_DURATION=0
+if [[ "$MAX_WALL" -le 0 ]]; then
+    MAX_WALL="$(python3 -c "print(int(3*float('${BAG_DURATION:-1}')+180))" 2>/dev/null || echo 600)"
+fi
 
 while kill -0 "$BAG_PID" 2>/dev/null; do
-    state="$(ps -o stat= -p "$BAG_PID" 2>/dev/null | tr -d ' ')"
-    [[ -z "$state" || "$state" == Z* ]] && break
-
-    now="$(date --iso-8601=seconds)"
-    ps -eo pid=,pcpu=,pmem=,etime=,args= |
-        grep -E \
-        'async_slam_toolbox_node|cartographer_node|robot_localization/ekf_node|src/part1_slam/scripts/tf_filter.py|ros2 bag play' |
-        grep -v grep |
-        while read -r pid cpu mem elapsed command; do
-            printf '"%s",%s,%s,%s,"%s","%s"\n' \
-                "$now" "$pid" "$cpu" "$mem" "$elapsed" "$command" \
-                >> "$RUN_DIR/resources.csv"
-        done
-
-    if (( SECONDS > 900 )); then
-        echo "Monitoring limit reached; stopping run safely." \
-            | tee "$RUN_DIR/time_limit.txt"
-        exit 124
+    NOW=$(date +%s)
+    if (( NOW - ${PLAY_START%.*} > MAX_WALL )); then
+        echo "WARNING: wall-clock cap reached, stopping playback" | tee "$RUN_DIR/time_limit.txt"
+        kill_group "$BAG_PID"
+        break
     fi
-    sleep 2
+    sleep 1
 done
-
-# Reap the naturally completed bag process before cleanup.
-wait "$BAG_PID"
+wait "$BAG_PID" 2>/dev/null
 BAG_RC=$?
-printf '%s\n' "$BAG_RC" > "$RUN_DIR/bag_exit_code.txt"
+PLAY_END=$(date +%s.%N)
+echo "$BAG_RC" > "$RUN_DIR/bag_exit_code.txt"
+
+WALL="$(python3 -c "print(round(float('${PLAY_END}')-float('${PLAY_START}'),3))")"
+python3 - "$RUN_DIR" "$BAG_DURATION" "$WALL" "$PLAY_RATE" <<'PY'
+import json, sys
+run_dir, bag_duration, wall, rate = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
+rtf = (bag_duration / wall) if wall > 0 else 0.0
+data = {'bag_duration_s': bag_duration, 'wall_time_s': wall, 'play_rate': rate,
+        'throughput_ratio': round(rtf, 4)}
+open(f'{run_dir}/rtf.json', 'w').write(json.dumps(data, indent=2))
+PY
+
+# Give loop closure / final optimisation a moment to settle.
+echo "Settling for final optimisation ..."
+sleep 4
+
+if [[ "$EXPERIMENT" == cartographer* ]]; then
+    timeout 20 ros2 service call /write_state \
+        cartographer_ros_msgs/srv/WriteState \
+        "{filename: '$RUN_DIR/map.pbstream'}" \
+        > "$RUN_DIR/write_state.log" 2>&1 || true
+fi
+
+# --------------------------------------------------------------- teardown
+stop_group "$RECORDER_PID"
+sleep 2
+RECORDER_PID=""
+
+grep 'TF filter stats' "$RUN_DIR/launch.log" | tail -1 > "$RUN_DIR/tf_filter_stats.log" 2>/dev/null || true
+grep -E 'Tracking|loop closure|Loop closure|Optimization|Registering sensor|Adding' \
+    "$RUN_DIR/launch.log" > "$RUN_DIR/slam_events.log" 2>/dev/null || true
+
+kill_group "$LAUNCH_PID"
+sleep 3
+kill_group "$SAMPLER_PID"
+sleep 1
+SAMPLER_PID=""
+LAUNCH_PID=""
 BAG_PID=""
 
-echo "Rosbag playback ended (exit code $BAG_RC)."
-echo "Stopping monitors and SLAM; cleanup has a bounded timeout."
-exit "$BAG_RC"
+python3 "$REPO/scripts/part1_slam_summarize_run.py" "$RUN_DIR" \
+    > "$RUN_DIR/summarize.log" 2>&1 || true
+
+echo "Run finished. Artifacts in $RUN_DIR"
+LC_ALL=C find "$RUN_DIR" -maxdepth 1 -type f -printf '%f\n' | sort

@@ -1,0 +1,34 @@
+# Fixed evaluation parameters for the Part 1 SLAM benchmark (decision D7).
+#
+# The values below are the contract between the recorded trajectories and the
+# numbers reported in the thesis. part1_slam_evaluate.py implements exactly
+# these settings; keep the two in sync and change them only through a new
+# entry in 08_decision_log.md.
+
+evaluation:
+  # Trajectories are projected onto the x-y plane (z = 0, roll = pitch = 0)
+  # before alignment, so the comparison is a planar rigid-body alignment.
+  alignment: se2_planar_umeyama
+  correct_scale: false
+  max_association_diff_s: 0.05
+
+  ate:
+    pose_relation: translation_part
+    unit: m
+
+  rpe:
+    pose_relation: translation_part
+    delta: 1.0
+    delta_unit: meters
+    all_pairs: true
+
+  # Minimum number of associated poses for a run to be considered valid.
+  min_associated_poses: 10
+
+  # Definition of the real-time factor reported in the results chapter:
+  #   RTF = processing wall time / bag duration
+  # RTF > 1 means the configuration cannot keep up with real time under the
+  # imposed resource budget. Measured with unthrottled playback (--rate 1000).
+  rtf:
+    definition: wall_time_per_bag_second
+    measured_with: unthrottled_playback

@@ -23,6 +23,11 @@ __pycache__/
 *safe_shutdown_*
 
 # 4. Generated run artifacts
+# Raw run directories stay out of git (bags, logs, pbstream, trajectories),
+# but the distilled per-run metrics are committed so every thesis number can
+# be traced to a run identifier.
+results/_smoke/
+results/run_all.log
 results/part1_slam/runs/*
 !results/part1_slam/runs/.gitkeep
 
@@ -36,6 +41,19 @@ results/part1_slam/tf_validation/*
 
 results/part1_slam/evaluation/per_run/*
 !results/part1_slam/evaluation/per_run/.gitkeep
+!results/part1_slam/evaluation/per_run/**
+
+results/part1_slam/evaluation/aggregate/*
+!results/part1_slam/evaluation/aggregate/.gitkeep
+!results/part1_slam/evaluation/aggregate/*.csv
+!results/part1_slam/evaluation/aggregate/*.tex
+!results/part1_slam/evaluation/aggregate/*.json
+!results/part1_slam/evaluation/aggregate/*.md
+
+results/part1_slam/evaluation/figures/*
+!results/part1_slam/evaluation/figures/.gitkeep
+!results/part1_slam/evaluation/figures/*.pdf
+!results/part1_slam/evaluation/figures/*.png
 
 # 5. Logs, ROS bags and binary artifacts
 *.log

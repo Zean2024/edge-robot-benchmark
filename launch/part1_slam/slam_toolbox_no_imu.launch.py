@@ -21,9 +21,10 @@ from lifecycle_msgs.msg import Transition
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
 
-    project_dir = os.path.join(
-        os.path.expanduser('~'),
-        'edge-robot-benchmark'
+    # Resolve the repository root from this launch file so the stack can be
+    # started from any checkout location (Windows workspace, WSL, container).
+    project_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', '..')
     )
 
     params_file = os.path.join(
