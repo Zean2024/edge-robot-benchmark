@@ -16,6 +16,10 @@ IMAGE="${PART1_IMAGE:-part1:jazzy}"
 DATA_ROOT="${PART1_DATA_ROOT:-$HOME/data/M2DGR-plus}"
 RESULTS_ROOT="${PART1_RESULTS_ROOT:-$REPO/results/part1_slam/runs}"
 
+# The container's git cannot read /repo (dubious ownership of the bind mount),
+# so the host-side revision is passed in and recorded by the capture script.
+PART1_GIT_REV="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
+
 exec docker run --rm \
     --network host \
     --cpus=1 \
@@ -27,5 +31,6 @@ exec docker run --rm \
     -e PART1_PLAY_RATE="${PART1_PLAY_RATE:-1.0}" \
     -e PART1_DATA_ROOT=/data \
     -e PART1_RESULTS_ROOT=/results \
+    -e PART1_GIT_REV="$PART1_GIT_REV" \
     "$IMAGE" \
     bash /repo/scripts/part1_slam_capture_run.sh "$@"
