@@ -62,8 +62,8 @@ def main():
     parser.add_argument('--gt', required=True, help='ground-truth TUM file')
     parser.add_argument('--est', required=True, help='estimated TUM file')
     parser.add_argument('--run-dir', required=True)
-    parser.add_argument('--max-diff', type=float, default=0.05,
-                        help='maximum timestamp difference for association [s]')
+    parser.add_argument('--max-diff', type=float, default=0.12,
+                        help='maximum timestamp difference for association [s] (frozen policy D7)')
     parser.add_argument('--rpe-delta', type=float, default=1.0)
     parser.add_argument('--rpe-unit', default='meters',
                         choices=['meters', 'seconds', 'frames'])
