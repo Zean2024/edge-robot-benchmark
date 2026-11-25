@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Aggregate per-run metrics into thesis tables and figures.
 
 Reads every run directory that contains both summary.json and metrics.json,
@@ -108,6 +108,7 @@ def latex_table(rows, path, caption, label, columns):
         rf'\caption{{{caption}}}',
         rf'\label{{{label}}}',
         r'\pdftooltip{%',
+        r'\footnotesize',
         r'\begin{tabular}{ll' + 'c' * len(columns) + '}',
         r'\toprule',
         'Dataset & Configuration & ' + ' & '.join(label for _, label in columns) + r' \\',
