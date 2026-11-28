@@ -47,13 +47,17 @@ def render(pgm_path, output_path):
     resolution = read_yaml_resolution(
         os.path.splitext(pgm_path)[0] + '.yaml'
     )
+    occupied_thresh, free_thresh = read_yaml_thresholds(
+        os.path.splitext(pgm_path)[0] + '.yaml'
+    )
     height, width = grid.shape
+    # ROS map convention: p = (255 - value) / 255. The unknown value differs
+    # between writers (nav2: 205; Cartographer: 128), so classify by p.
+    p = (255.0 - grid.astype(float)) / 255.0
     image = np.zeros((height, width, 3), dtype=float)
-    # 0 = occupied (black), 205 = unknown (grey), 254 = free (white).
-    for value, colour in ((0, 0.0), (205, 0.75), (254, 1.0)):
-        mask = grid == value
-        image[mask] = colour
-    image[~np.isin(grid, (0, 205, 254))] = 0.5
+    image[p > occupied_thresh] = 0.0      # occupied -> black
+    image[p < free_thresh] = 1.0         # free -> white
+    image[~((p > occupied_thresh) | (p < free_thresh))] = 0.75  # unknown
 
     fig, axis = plt.subplots(figsize=(5.2, 5.2 * height / max(width, 1)))
     extent = [0, width * resolution, 0, height * resolution]
@@ -69,6 +73,18 @@ def render(pgm_path, output_path):
     fig.savefig(output_path, dpi=200)
     plt.close(fig)
     print(f'{pgm_path} -> {output_path} ({width}x{height} cells, {resolution} m)')
+
+
+def read_yaml_thresholds(yaml_path, occupied=0.65, free=0.196):
+    try:
+        for line in open(yaml_path, encoding='utf-8'):
+            if line.startswith('occupied_thresh:'):
+                occupied = float(line.split(':')[1])
+            elif line.startswith('free_thresh:'):
+                free = float(line.split(':')[1])
+    except OSError:
+        pass
+    return occupied, free
 
 
 def main():

@@ -12,7 +12,7 @@ mkdir -p "$THESIS/tables" "$THESIS/figs"
 cp -f "$EVAL/aggregate/table_ate_rpe.tex" "$THESIS/tables/"
 cp -f "$EVAL/aggregate/table_resources.tex" "$THESIS/tables/"
 
-for figure in fig_ate.pdf fig_rpe.pdf fig_cpu.pdf fig_memory.pdf; do
+for figure in fig_ate.pdf fig_rpe.pdf fig_cpu.pdf fig_memory.pdf fig_map_composite.pdf; do
     [[ -f "$EVAL/figures/$figure" ]] && cp -f "$EVAL/figures/$figure" "$THESIS/figs/"
 done
 for figure in "$EVAL"/figures/fig_trajectory_*.pdf; do
